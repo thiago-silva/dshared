@@ -106,15 +106,41 @@ SListType = {
 
 typedef struct {
   PyDictObject dict;
-  offset_ptr<sdict> sd;
+  sdict* sd;
 } SDict;
 
+static PyObject*
+SDict_create(offset_ptr<sdict_value_t>);
 
-PyObject* SDict_new(offset_ptr<sdict>);
+static PyObject*
+SDict_for_sdict(offset_ptr<sdict_value_t> val) {
+  if (val->has_pyobj_cache()) {
+    return (PyObject*)val->cache();
+  } else {
+    return SDict_create(val);
+  }
+}
+
+static PyObject*
+PyObject_from_sdict(offset_ptr<sdict_value_t> val) {
+  switch(val->tag) {
+    case sdict_value_t::NIL:
+      Py_INCREF(Py_None);
+      return Py_None;
+    case sdict_value_t::STRING:
+      return PyString_FromString(val->str.c_str());
+    case sdict_value_t::NUMBER:
+      return PyInt_FromLong(val->num);
+    case sdict_value_t::PYDICT:
+      return SDict_for_sdict(val);
+  }
+  PyErr_SetString(PyExc_TypeError,"unknown type tag");
+  return NULL;
+}
 
 static int
 SDict_len(PyObject* self) {
-  return 0;
+  return ((SDict*)self)->sd->size();
 }
 
 static PyObject*
@@ -130,20 +156,8 @@ SDict_get_item(PyObject* _self, PyObject* key) {
 
   try {
 
-    offset_ptr<sdict_value_t> val = sdict_get_item(self->sd.get(), strkey);
-    switch(val->tag) {
-      case sdict_value_t::NIL:
-        Py_INCREF(Py_None);
-        return Py_None;
-      case sdict_value_t::STRING:
-        return PyString_FromString(val->str.c_str());
-      case sdict_value_t::NUMBER:
-        return PyInt_FromLong(val->num);
-      case sdict_value_t::PYDICT:
-        return SDict_new((sdict*) val->d.get());
-    }
-    printf("TODO get");
-    assert(0);
+    offset_ptr<sdict_value_t> val = sdict_get_item(self->sd, strkey);
+    return PyObject_from_sdict(val);
   } catch(...) { //out of range
     Py_INCREF(Py_None);
     return Py_None;
@@ -153,7 +167,7 @@ SDict_get_item(PyObject* _self, PyObject* key) {
 }
 
 
-int
+static int
 rec_store_item(sdict* sd, const char* strkey, PyObject* val) {
   if (val == Py_None) {
     sdict_set_null_item(sd, strkey);
@@ -194,7 +208,7 @@ rec_store_item(sdict* sd, const char* strkey, PyObject* val) {
   return 0;
 }
 
-int
+static int
 SDict_set_item(PyObject* _self, PyObject* key, PyObject* val) {
   SDict* self = (SDict*) _self;
   if (!PyString_Check(key)) {
@@ -202,7 +216,94 @@ SDict_set_item(PyObject* _self, PyObject* key, PyObject* val) {
     return 1;
   }
   const char* strkey = PyString_AsString(key);
-  return rec_store_item(self->sd.get(), strkey, val);
+  return rec_store_item(self->sd, strkey, val);
+}
+
+
+
+
+typedef struct {
+  PyObject_HEAD
+  SDict* collection;
+  sdict::iterator current;
+} SDict_Iter;
+
+PyObject*
+SDict_Iter_iternext(PyObject *_self) {
+  SDict_Iter* self = (SDict_Iter*)_self;
+
+  if (self->current == self->collection->sd->end()) {
+    PyErr_SetNone(PyExc_StopIteration);
+    return NULL;
+  } else {
+    const char* strkey = self->current->first.c_str();
+    sdict_value_t* val = (sdict_value_t*) self->current->second.get();
+    PyObject* tp = PyTuple_New(2);
+    PyTuple_SetItem(tp, 0, PyString_FromString(strkey));
+    PyTuple_SetItem(tp, 1, PyObject_from_sdict(val));
+    self->current++;
+    return tp;
+  }
+}
+
+static PyTypeObject
+SDict_IterType = {
+    PyObject_HEAD_INIT(NULL)
+    0,                       /* ob_size */
+    "dshared.dict-iterator", /* tp_name */
+    sizeof(SDict_Iter),      /* tp_basicsize */
+    0,                       /* tp_itemsize */
+    0,                       /* tp_dealloc */
+    0,                       /* tp_print */
+    0,                       /* tp_getattr */
+    0,                       /* tp_setattr */
+    0,                       /* tp_compare */
+    0,                       /* tp_repr */
+    0,                       /* tp_as_number */
+    0,                       /* tp_as_sequence */
+    0,                       /* tp_as_mapping */
+    0,                       /* tp_hash */
+    0,                       /* tp_call */
+    0,                       /* tp_str */
+    0,                       /* tp_getattro */
+    0,                       /* tp_setattro */
+    0,                       /* tp_as_buffer */
+    Py_TPFLAGS_DEFAULT |
+     Py_TPFLAGS_HAVE_ITER,   /* tp_flags */
+    0,                       /* tp_doc */
+    0,                       /* tp_traverse */
+    0,                       /* tp_clear */
+    0,                       /* tp_richcompare */
+    0,                       /* tp_weaklistoffset */
+    PyObject_SelfIter,       /* tp_iter */
+    SDict_Iter_iternext,     /* tp_iternext */
+    0,                       /* tp_methods */
+    0,                       /* tp_members */
+    0,                       /* tp_getset */
+    0,                       /* tp_base */
+    0,                       /* tp_dict */
+    0,                       /* tp_descr_get */
+    0,                       /* tp_descr_set */
+    0,                       /* tp_dictoffset */
+    0,                       /* tp_init */
+    0,                       /* tp_alloc */
+    0,                       /* tp_new */
+};
+
+static PyObject*
+SDict_iteritems(PyObject* self, PyObject* args) {
+  SDict_Iter* iterator = (SDict_Iter*)  PyObject_New(SDict_Iter, &SDict_IterType);
+  if (!iterator) return NULL;
+  if (!PyObject_Init((PyObject *)iterator, &SDict_IterType)) {
+    Py_DECREF(iterator);
+    return NULL;
+  }
+
+  iterator->collection = (SDict*) self;
+  iterator->current = iterator->collection->sd->begin();
+  Py_INCREF(self);
+  Py_INCREF(iterator);
+  return (PyObject*) iterator;
 }
 
 static int
@@ -229,11 +330,15 @@ SDict_init(SDict *self, PyObject *args, PyObject *kwds)
   }
 
 
-  if (PyDict_Type.tp_init((PyObject *)self, args, kwds) < 0)
+  if (PyDict_Type.tp_init((PyObject *)self, PyTuple_New(0), PyDict_New()) < 0)
     return -1;
 
   self->sd = manager->create_sdict();
   return 0;
+}
+
+static PyObject* SDict_iter(PyObject *o) {
+  return NULL;
 }
 
 static PyMappingMethods sdict_mapping = {
@@ -242,12 +347,18 @@ static PyMappingMethods sdict_mapping = {
     SDict_set_item
 };
 
+static PyMethodDef
+SDict_methods[] = {
+    {"iteritems", (PyCFunction)SDict_iteritems, METH_NOARGS,
+     PyDoc_STR("iterator for items")},
+    {NULL, NULL},
+};
 
 static PyTypeObject
 SDictType = {
     PyObject_HEAD_INIT(NULL)
     0,                       /* ob_size */
-    "dshared.Dict",          /* tp_name */
+    "dshared.dict",          /* tp_name */
     sizeof(SDict),           /* tp_basicsize */
     0,                       /* tp_itemsize */
     0,                       /* tp_dealloc */
@@ -274,7 +385,7 @@ SDictType = {
     0,                       /* tp_weaklistoffset */
     0,                       /* tp_iter */
     0,                       /* tp_iternext */
-    0,                       /* tp_methods */
+    SDict_methods,           /* tp_methods */
     0,                       /* tp_members */
     0,                       /* tp_getset */
     0,                       /* tp_base */
@@ -288,11 +399,14 @@ SDictType = {
 };
 
 
-PyObject*
-SDict_new(offset_ptr<sdict> sd) {
-  SDict* raw = (SDict*) PyObject_CallObject((PyObject *) &SDictType, PyTuple_New(0));
-  raw->sd = sd;
-  return (PyObject*) raw;
+static PyObject*
+SDict_create(offset_ptr<sdict_value_t> variant) {
+  SDict* obj = (SDict*) PyObject_CallObject((PyObject *) &SDictType, PyTuple_New(0));
+  Py_INCREF(obj); //obj should be cached. I'm not sure if an additional is necessary.
+
+  variant.get()->cache_obj(obj);
+  obj->sd = (sdict*) variant->d.get();
+  return (PyObject*) obj;
 }
 
 /** END: dshared.Dict  **/

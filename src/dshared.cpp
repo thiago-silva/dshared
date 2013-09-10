@@ -1,10 +1,22 @@
 #include "dshared.hpp"
+#include <unistd.h>
 
 extern MManager* manager;
 
 sdict_value_t::sdict_value_t(int _tag, int _num, const char* _str, offset_ptr<void> _d, void_allocator alloc)
-  : tag(_tag), num(_num), str(_str, alloc), d(_d)
+  : tag(_tag), num(_num), str(_str, alloc), d(_d), pyobj_cache()
 {}
+
+bool sdict_value_t::has_pyobj_cache() {
+  return pyobj_cache.find(getpid()) != pyobj_cache.end();
+}
+void* sdict_value_t::cache() {
+  return pyobj_cache.at(getpid());
+}
+
+void sdict_value_t::cache_obj(void* p) {
+  pyobj_cache[getpid()] = p;
+}
 
 MManager::MManager(const char* _name, unsigned long _size) :
   name(_name),

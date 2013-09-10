@@ -4,6 +4,7 @@
 #include <boost/interprocess/containers/map.hpp>
 #include <boost/interprocess/containers/string.hpp>
 #include <boost/interprocess/allocators/allocator.hpp>
+#include <sys/types.h>
 
 using namespace boost::interprocess;
 
@@ -11,6 +12,8 @@ typedef managed_shared_memory::segment_manager  segment_manager_t;
 typedef allocator<void, segment_manager_t> void_allocator;
 typedef allocator<char, segment_manager_t> char_allocator;
 typedef basic_string <char, std::char_traits<char>, char_allocator> char_string;
+
+typedef map<pid_t, void*>  pyobj_cache_t;
 
 class sdict_value_t {
 public:
@@ -26,8 +29,12 @@ public:
   int num;
   char_string str;
   offset_ptr<void> d;
-
+  pyobj_cache_t pyobj_cache;
   sdict_value_t(int _tag, int _num, const char* _str, offset_ptr<void> _d, void_allocator alloc);
+
+  bool has_pyobj_cache();
+  void* cache();
+  void cache_obj(void* p);
 };
 
 typedef offset_ptr<sdict_value_t> pair_value_t;
