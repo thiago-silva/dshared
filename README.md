@@ -5,8 +5,8 @@ A quick 'n dirty python extension providing shared memory dictionaries.
 
 ## Summary
 
-This extension creates an `mmap` shared memory segment where python values can
-be stored and accessed from distinct processes -- no IPC, pickling/wiring, not
+This extension creates an shared memory segment where python values can be
+stored and accessed from distinct processes -- no IPC, pickling/wiring, not
 even locking will get in your way.
 
 **important** notes to keep in mind:
