@@ -159,8 +159,8 @@ SDict_get_item(PyObject* _self, PyObject* key) {
     offset_ptr<sdict_value_t> val = sdict_get_item(self->sd, strkey);
     return PyObject_from_sdict(val);
   } catch(...) { //out of range
-    Py_INCREF(Py_None);
-    return Py_None;
+    PyErr_SetString(PyExc_KeyError,strkey);
+    return NULL;
   }
   Py_INCREF(Py_None);
   return Py_None;
