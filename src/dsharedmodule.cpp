@@ -270,6 +270,45 @@ SDict_iteritems(PyObject* self, PyObject* args) {
   return (PyObject*) iterator;
 }
 
+static PyObject*
+SDict_items(PyObject* _self, PyObject* args) {
+  SDict* self = (SDict*) _self;
+
+  PyObject *lst;
+  PyObject *tpl;
+  PyObject *py_key;
+  PyObject *py_val;
+
+  if ((lst = PyList_New(self->sd->size())) == NULL) {
+    return NULL;
+  }
+  int i = 0;
+  for (sdict::iterator it = self->sd->begin();
+       it != self->sd->end(); i++, it++) {
+    if ((tpl = PyTuple_New(2)) == NULL) {
+      return NULL;
+    }
+    if ((py_key = PyString_FromString(it->first.c_str())) == NULL) {
+      return NULL;
+    }
+    if (PyTuple_SetItem(tpl, 0, py_key) != 0) {
+      return NULL;
+    }
+
+    offset_ptr<sdict_value_t> sdval = sdict_get_item(self->sd, it->first.c_str());
+    if ((py_val = PyObject_from_sdict(sdval)) == NULL) {
+      return NULL;
+    }
+    if (PyTuple_SetItem(tpl, 1, py_val) != 0) {
+      return NULL;
+    }
+    if (PyList_SetItem(lst, i, tpl) == -1) {
+      return NULL;
+    }
+  }
+  return lst;
+}
+
 static int
 SDict_init(SDict *self, PyObject *args, PyObject *kwds)
 {
@@ -301,10 +340,19 @@ SDict_init(SDict *self, PyObject *args, PyObject *kwds)
   return 0;
 }
 
+PyObject*
+SDict_str(PyObject *self) {
+  std::stringstream s;
+  s << "<dshared.dict" << " object at " << self << ">";
+  return PyString_FromString(s.str().c_str());
+}
 
-static PyObject*
-SDict_iter(PyObject *o) {
-  return NULL;
+int
+SDict_print(PyObject *self, FILE *file, int flags) {
+  std::stringstream s;
+  s << "<dshared.dict" << " object at " << self << ">";
+  fputs(s.str().c_str(), file);
+  return 0;
 }
 
 static PyMappingMethods
@@ -318,6 +366,8 @@ static PyMethodDef
 SDict_methods[] = {
     {"iteritems", (PyCFunction)SDict_iteritems, METH_NOARGS,
      PyDoc_STR("iterator for items")},
+    {"items", (PyCFunction)SDict_items, METH_NOARGS,
+     PyDoc_STR("dict items")},
     {NULL, NULL},
 };
 
@@ -329,7 +379,7 @@ SDictType = {
     sizeof(SDict),           /* tp_basicsize */
     0,                       /* tp_itemsize */
     0,                       /* tp_dealloc */
-    0,                       /* tp_print */
+    SDict_print,             /* tp_print */
     0,                       /* tp_getattr */
     0,                       /* tp_setattr */
     0,                       /* tp_compare */
@@ -339,7 +389,7 @@ SDictType = {
     &sdict_mapping,          /* tp_as_mapping */
     0,                       /* tp_hash */
     0,                       /* tp_call */
-    0,                       /* tp_str */
+    SDict_str,               /* tp_str */
     0,                       /* tp_getattro */
     0,                       /* tp_setattro */
     0,                       /* tp_as_buffer */
@@ -412,7 +462,6 @@ rec_store_item(sdict* sd, const char* strkey, PyObject* val, visited_map_t  visi
       return 0;
     }
   } else if (PyObject_TypeCheck(val, &SDictType)) {
-    std::cout << "HERE\n";
     sdict* other = ((SDict*)val)->sd;
     sdict_set_sdict_item(sd, strkey, other);
     return 0;
