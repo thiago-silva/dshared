@@ -51,7 +51,7 @@ class P(Process):
             self.show()
 
 
-dshared.init(2 ** 20)
+dshared.init("my_shared_mem",2 ** 20)
 
 shared = dshared.dict({"initial":"initial val"})
 

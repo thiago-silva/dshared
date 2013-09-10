@@ -20,26 +20,28 @@
 
 #include <Python.h>
 #include <longobject.h>
+#include "dshared.hpp"
 
 /** dshared.List  **/
 
+//single static shared memory [sorry]
+MManager* manager = NULL;
+
 typedef struct {
     PyListObject list;
-    int state;
+    sdict* d;
 } SList;
 
 static PyObject *
 SList_increment(SList *self, PyObject *unused) {
-    self->state++;
-    return PyInt_FromLong(self->state);
+    return PyInt_FromLong(1);
 }
 
 static int
 SList_init(SList *self, PyObject *args, PyObject *kwds) {
-    if (PyList_Type.tp_init((PyObject *)self, args, kwds) < 0)
-        return -1;
-    self->state = 0;
-    return 0;
+  if (PyList_Type.tp_init((PyObject *)self, args, kwds) < 0)
+    return -1;
+  return 0;
 }
 
 static PyMethodDef
@@ -101,32 +103,116 @@ SListType = {
 /** dshared.Dict  **/
 
 typedef struct {
-    PyDictObject dict;
-    int state;
+  PyDictObject dict;
+  sdict* sd;
 } SDict;
 
-static PyObject *
-SDict_increment(SDict *self, PyObject *unused)
-{
-    self->state++;
-    return PyInt_FromLong(self->state);
+static int
+SDict_len(PyObject* self) {
+  return 0;
 }
 
+static PyObject*
+SDict_get_item(PyObject* _self, PyObject* key) {
+  SDict* self = (SDict*) _self;
+
+  if (!PyString_Check(key)) {
+    PyErr_SetString(PyExc_TypeError,"only strings can index sdict");
+    return NULL;
+  }
+
+  const char* strkey = PyString_AsString(key);
+
+  try {
+    offset_ptr<sdict_value_t> val = sdict_get_item(self->sd, strkey);
+    switch(val->tag) {
+      case sdict_value_t::NIL:
+        Py_INCREF(Py_None);
+        return Py_None;
+      case sdict_value_t::STRING:
+        return PyString_FromString(val->str.c_str());
+      case sdict_value_t::NUMBER:
+        return PyInt_FromLong(val->num);
+    }
+    printf("TODO get");
+    assert(0);
+  } catch(...) { //out of range
+    Py_INCREF(Py_None);
+    return Py_None;
+  }
+  Py_INCREF(Py_None);
+  return Py_None;
+}
+
+int
+SDict_set_item(PyObject* _self, PyObject* key, PyObject* val) {
+  SDict* self = (SDict*) _self;
+
+  if (!PyString_Check(key)) {
+    PyErr_SetString(PyExc_TypeError,"only strings can index sdict");
+    return 1;
+  }
+
+  const char* strkey = PyString_AsString(key);
+
+  if (val == Py_None) {
+    sdict_set_null_item(self->sd, strkey);
+  } else if (PyString_Check(val)) {
+    sdict_set_string_item(self->sd, strkey, PyString_AsString(val));
+  } else if (PyInt_Check(val)) {
+    long r = PyInt_AsLong(val);
+    if (PyErr_Occurred()) {
+      return 1;
+    } else {
+      sdict_set_number_item(self->sd, strkey, r);
+    }
+  } else if (1 /*pydic*/) {
+    printf("TODO pydict");
+    assert(0);
+  } else if (1 /*sdic*/) {
+    printf("TODO sdict");
+    assert(0);
+  } else if (1 /*fucking class*/) {
+    printf("TODO class");
+    assert(0);
+  } else {
+    PyErr_SetString(PyExc_TypeError,"value type not supported");
+    return 1;
+  }
+  return 0;
+}
 
 static int
 SDict_init(SDict *self, PyObject *args, PyObject *kwds)
 {
-    if (PyList_Type.tp_init((PyObject *)self, args, kwds) < 0)
-        return -1;
-    self->state = 0;
-    return 0;
+  if (manager == NULL) {
+    PyErr_SetString(PyExc_RuntimeError,"init() was not called");
+    return -1;
+  }
+
+  PyObject *py_dict;
+  if (!PyArg_UnpackTuple(args, "__init__", 1, 1, &py_dict)) {
+    PyErr_SetString(PyExc_TypeError,"expected one argument");
+    return -1;
+  }
+
+  if (!PyDict_Check(py_dict)) {
+    PyErr_SetString(PyExc_TypeError,"expected a dictionary");
+    return -1;
+  }
+
+
+  if (PyDict_Type.tp_init((PyObject *)self, args, kwds) < 0)
+    return -1;
+
+  self->sd = manager->create_sdict();
+  return 0;
 }
 
-static PyMethodDef
-SDict_methods[] = {
-    {"increment", (PyCFunction)SDict_increment, METH_NOARGS,
-     PyDoc_STR("increment state counter")},
-    {NULL, NULL},
+static PyMappingMethods sdict_mapping = {
+    SDict_len,
+    SDict_get_item,
+    SDict_set_item
 };
 
 
@@ -145,7 +231,7 @@ SDictType = {
     0,                       /* tp_repr */
     0,                       /* tp_as_number */
     0,                       /* tp_as_sequence */
-    0,                       /* tp_as_mapping */
+    &sdict_mapping,          /* tp_as_mapping */
     0,                       /* tp_hash */
     0,                       /* tp_call */
     0,                       /* tp_str */
@@ -161,7 +247,7 @@ SDictType = {
     0,                       /* tp_weaklistoffset */
     0,                       /* tp_iter */
     0,                       /* tp_iternext */
-    SDict_methods,           /* tp_methods */
+    0,                       /* tp_methods */
     0,                       /* tp_members */
     0,                       /* tp_getset */
     0,                       /* tp_base */
@@ -180,36 +266,47 @@ SDictType = {
 /** dshared functions  **/
 
 static PyObject *
-dshared_init(PyObject *self, PyObject *size)
+dshared_init(PyObject *self, PyObject *args)
 {
-  if (!PyInt_Check(size)) {
-    PyErr_SetString(PyExc_TypeError,"expected a number");
+  if (manager != NULL) {
+    PyErr_SetString(PyExc_RuntimeError,"init() already called");
     return NULL;
   }
-  long value = PyLong_AsLong(size);
-  //...
+
+  PyObject *py_name = NULL;
+  PyObject *py_size = NULL;
+  if (!PyArg_UnpackTuple(args, "init", 2, 2, &py_name, &py_size)) {
+    PyErr_SetString(PyExc_TypeError,"expected (string,int) args ");
+    return NULL;
+  }
+  if (!PyString_Check(py_name)) {
+    PyErr_SetString(PyExc_TypeError,"expected string as first argument");
+    return NULL;
+  }
+  if (!PyInt_Check(py_size)) {
+    PyErr_SetString(PyExc_TypeError,"expected integer as second argument");
+    return NULL;
+  }
+
+  long size = PyLong_AsLong(py_size);
+  const char* name = PyString_AsString(py_name);
+
+  try {
+    shared_memory_object::remove(name);
+    manager = new MManager(name, size);
+  } catch(...) {
+    PyErr_SetString(PyExc_MemoryError,"error initializing shared memory");
+    return NULL;
+  }
+
   Py_INCREF(Py_None);
   return Py_None;
 }
 
-static PyObject *
-dshared_dict(PyObject *self, PyObject *dict)
-{
-  if (!PyDict_Check(dict)) {
-    PyErr_SetString(PyExc_TypeError,"expected a dictionary");
-    return NULL;
-  }
-
-  Py_INCREF(dict);
-  return dict;
-}
-
 static PyMethodDef
 DSharedMethods[] = {
-  {"init",  dshared_init, METH_O,
+  {"init",  dshared_init, METH_VARARGS,
    "Initialize shared memory."},
-  {"dict",  dshared_dict, METH_O,
-   "create a shared dict."},
   {NULL, NULL, 0, NULL}        /* Sentinel */
 };
 
@@ -230,9 +327,8 @@ initdshared(void)
   if (m == NULL)
     return;
 
-  Py_INCREF(&SListType);
-  PyModule_AddObject(m, "List", (PyObject *) &SListType);
-
+  // Py_INCREF(&SListType);
+  // PyModule_AddObject(m, "List", (PyObject *) &SListType);
   Py_INCREF(&SDictType);
-  PyModule_AddObject(m, "Dict", (PyObject *) &SDictType);
+  PyModule_AddObject(m, "dict", (PyObject *) &SDictType);
 }
