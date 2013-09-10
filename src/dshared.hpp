@@ -25,9 +25,9 @@ public:
   int tag;
   int num;
   char_string str;
-  void* d;
+  offset_ptr<void> d;
 
-  sdict_value_t(int _tag, int _num, const char* _str, void* _d, void_allocator alloc);
+  sdict_value_t(int _tag, int _num, const char* _str, offset_ptr<void> _d, void_allocator alloc);
 };
 
 typedef offset_ptr<sdict_value_t> pair_value_t;
@@ -57,7 +57,7 @@ private:
 void sdict_set_null_item(sdict* sd, const char* key);
 void sdict_set_string_item(sdict* sd, const char* key, const char* value);
 void sdict_set_number_item(sdict* sd, const char* key, long num);
-void sdict_set_sdict_item(sdict* sd, const char* key, sdict** value);
+void sdict_set_sdict_item(sdict* sd, const char* key, sdict* value);
 offset_ptr<sdict_value_t> sdict_get_item(sdict* sd, const char* key);
 
 #endif

@@ -2,7 +2,7 @@
 
 extern MManager* manager;
 
-sdict_value_t::sdict_value_t(int _tag, int _num, const char* _str, void* _d, void_allocator alloc)
+sdict_value_t::sdict_value_t(int _tag, int _num, const char* _str, offset_ptr<void> _d, void_allocator alloc)
   : tag(_tag), num(_num), str(_str, alloc), d(_d)
 {}
 
@@ -70,7 +70,11 @@ void sdict_set_number_item(sdict* sd, const char* strkey, long num) {
   sd->insert(p);
 }
 
-void sdict_set_sdict_item(sdict* sd, const char* strkey, sdict** value) {
+void sdict_set_sdict_item(sdict* sd, const char* strkey, sdict* value) {
+  char_string*  key = manager->create_string(strkey);
+  sdict_value_t* val = manager->create_sdict_value(value);
+  sdict_pair_type p(*key, val);
+  sd->insert(p);
 }
 
 offset_ptr<sdict_value_t> sdict_get_item(sdict* sd, const char* strkey) {

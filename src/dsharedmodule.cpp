@@ -21,15 +21,17 @@
 #include <Python.h>
 #include <longobject.h>
 #include "dshared.hpp"
-
-/** dshared.List  **/
+#include <iostream>
 
 //single static shared memory [sorry]
 MManager* manager = NULL;
 
+
+/** dshared.List  **/
+
 typedef struct {
-    PyListObject list;
-    sdict* d;
+  PyListObject list;
+  offset_ptr<sdict> d;
 } SList;
 
 static PyObject *
@@ -104,8 +106,11 @@ SListType = {
 
 typedef struct {
   PyDictObject dict;
-  sdict* sd;
+  offset_ptr<sdict> sd;
 } SDict;
+
+
+PyObject* SDict_new(offset_ptr<sdict>);
 
 static int
 SDict_len(PyObject* self) {
@@ -124,7 +129,8 @@ SDict_get_item(PyObject* _self, PyObject* key) {
   const char* strkey = PyString_AsString(key);
 
   try {
-    offset_ptr<sdict_value_t> val = sdict_get_item(self->sd, strkey);
+
+    offset_ptr<sdict_value_t> val = sdict_get_item(self->sd.get(), strkey);
     switch(val->tag) {
       case sdict_value_t::NIL:
         Py_INCREF(Py_None);
@@ -133,6 +139,8 @@ SDict_get_item(PyObject* _self, PyObject* key) {
         return PyString_FromString(val->str.c_str());
       case sdict_value_t::NUMBER:
         return PyInt_FromLong(val->num);
+      case sdict_value_t::PYDICT:
+        return SDict_new((sdict*) val->d.get());
     }
     printf("TODO get");
     assert(0);
@@ -144,31 +152,35 @@ SDict_get_item(PyObject* _self, PyObject* key) {
   return Py_None;
 }
 
+
 int
-SDict_set_item(PyObject* _self, PyObject* key, PyObject* val) {
-  SDict* self = (SDict*) _self;
-
-  if (!PyString_Check(key)) {
-    PyErr_SetString(PyExc_TypeError,"only strings can index sdict");
-    return 1;
-  }
-
-  const char* strkey = PyString_AsString(key);
-
+rec_store_item(sdict* sd, const char* strkey, PyObject* val) {
   if (val == Py_None) {
-    sdict_set_null_item(self->sd, strkey);
+    sdict_set_null_item(sd, strkey);
+    return 0;
   } else if (PyString_Check(val)) {
-    sdict_set_string_item(self->sd, strkey, PyString_AsString(val));
+    sdict_set_string_item(sd, strkey, PyString_AsString(val));
+    return 0;
   } else if (PyInt_Check(val)) {
     long r = PyInt_AsLong(val);
     if (PyErr_Occurred()) {
       return 1;
-    } else {
-      sdict_set_number_item(self->sd, strkey, r);
     }
-  } else if (1 /*pydic*/) {
-    printf("TODO pydict");
-    assert(0);
+    sdict_set_number_item(sd, strkey, r);
+    return 0;
+  } else if (PyDict_CheckExact(val)) {
+    PyObject *key, *value;
+    Py_ssize_t pos = 0;
+    int ret;
+    sdict* entry = manager->create_sdict();
+    while (PyDict_Next(val, &pos, &key, &value)) {
+      const char* strkey = PyString_AsString(key);
+      if ((ret = rec_store_item(entry, strkey, value)) != 0) {
+        return ret;
+      }
+    }
+    sdict_set_sdict_item(sd, strkey, entry);
+    return 0;
   } else if (1 /*sdic*/) {
     printf("TODO sdict");
     assert(0);
@@ -182,6 +194,17 @@ SDict_set_item(PyObject* _self, PyObject* key, PyObject* val) {
   return 0;
 }
 
+int
+SDict_set_item(PyObject* _self, PyObject* key, PyObject* val) {
+  SDict* self = (SDict*) _self;
+  if (!PyString_Check(key)) {
+    PyErr_SetString(PyExc_TypeError,"only strings can index sdict");
+    return 1;
+  }
+  const char* strkey = PyString_AsString(key);
+  return rec_store_item(self->sd.get(), strkey, val);
+}
+
 static int
 SDict_init(SDict *self, PyObject *args, PyObject *kwds)
 {
@@ -191,9 +214,13 @@ SDict_init(SDict *self, PyObject *args, PyObject *kwds)
   }
 
   PyObject *py_dict;
-  if (!PyArg_UnpackTuple(args, "__init__", 1, 1, &py_dict)) {
-    PyErr_SetString(PyExc_TypeError,"expected one argument");
-    return -1;
+  if (PyTuple_Size(args) == 0) {
+    py_dict = PyDict_New();
+  } else {
+    if (!PyArg_UnpackTuple(args, "__init__", 1, 1, &py_dict)) {
+      PyErr_SetString(PyExc_TypeError,"expected one argument");
+      return -1;
+    }
   }
 
   if (!PyDict_Check(py_dict)) {
@@ -260,6 +287,13 @@ SDictType = {
     0,                       /* tp_new */
 };
 
+
+PyObject*
+SDict_new(offset_ptr<sdict> sd) {
+  SDict* raw = (SDict*) PyObject_CallObject((PyObject *) &SDictType, PyTuple_New(0));
+  raw->sd = sd;
+  return (PyObject*) raw;
+}
 
 /** END: dshared.Dict  **/
 
