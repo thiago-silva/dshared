@@ -166,9 +166,11 @@ SDict_get_item(PyObject* _self, PyObject* key) {
   return Py_None;
 }
 
+typedef std::map<PyObject*, sdict*> visited_map_t;
 
 static int
-rec_store_item(sdict* sd, const char* strkey, PyObject* val);
+rec_store_item(sdict* sd, const char* strkey,
+               PyObject* val, visited_map_t visited = visited_map_t());
 
 static int
 SDict_set_item(PyObject* _self, PyObject* key, PyObject* val) {
@@ -371,9 +373,8 @@ SDict_create(offset_ptr<sdict_value_t> variant) {
   return (PyObject*) obj;
 }
 
-
 int
-rec_store_item(sdict* sd, const char* strkey, PyObject* val) {
+rec_store_item(sdict* sd, const char* strkey, PyObject* val, visited_map_t  visited) {
   if (val == Py_None) {
     sdict_set_null_item(sd, strkey);
     return 0;
@@ -388,18 +389,25 @@ rec_store_item(sdict* sd, const char* strkey, PyObject* val) {
     sdict_set_number_item(sd, strkey, r);
     return 0;
   } else if (PyDict_CheckExact(val)) {
-    PyObject *key, *value;
-    Py_ssize_t pos = 0;
-    int ret;
-    sdict* entry = manager->create_sdict();
-    while (PyDict_Next(val, &pos, &key, &value)) {
-      const char* strkey = PyString_AsString(key);
-      if ((ret = rec_store_item(entry, strkey, value)) != 0) {
-        return ret;
+    visited_map_t::iterator it = visited.find(val);
+    if (it != visited.end()) { //recursive structure
+      sdict_set_sdict_item(sd, strkey, it->second);
+      return 0;
+    } else {
+      PyObject *key, *value;
+      Py_ssize_t pos = 0;
+      int ret;
+      sdict* entry = manager->create_sdict();
+      visited[val] = entry;
+      while (PyDict_Next(val, &pos, &key, &value)) {
+        const char* strkey = PyString_AsString(key);
+        if ((ret = rec_store_item(entry, strkey, value, visited)) != 0) {
+          return ret;
+        }
       }
+      sdict_set_sdict_item(sd, strkey, entry);
+      return 0;
     }
-    sdict_set_sdict_item(sd, strkey, entry);
-    return 0;
   } else if (PyObject_TypeCheck(val, &SDictType)) {
     std::cout << "HERE\n";
     sdict* other = ((SDict*)val)->sd;
