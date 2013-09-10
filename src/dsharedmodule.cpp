@@ -301,11 +301,14 @@ SDict_init(SDict *self, PyObject *args, PyObject *kwds)
   return 0;
 }
 
-static PyObject* SDict_iter(PyObject *o) {
+
+static PyObject*
+SDict_iter(PyObject *o) {
   return NULL;
 }
 
-static PyMappingMethods sdict_mapping = {
+static PyMappingMethods
+sdict_mapping = {
     SDict_len,
     SDict_get_item,
     SDict_set_item
