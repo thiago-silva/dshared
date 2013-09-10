@@ -168,45 +168,7 @@ SDict_get_item(PyObject* _self, PyObject* key) {
 
 
 static int
-rec_store_item(sdict* sd, const char* strkey, PyObject* val) {
-  if (val == Py_None) {
-    sdict_set_null_item(sd, strkey);
-    return 0;
-  } else if (PyString_Check(val)) {
-    sdict_set_string_item(sd, strkey, PyString_AsString(val));
-    return 0;
-  } else if (PyInt_Check(val)) {
-    long r = PyInt_AsLong(val);
-    if (PyErr_Occurred()) {
-      return 1;
-    }
-    sdict_set_number_item(sd, strkey, r);
-    return 0;
-  } else if (PyDict_CheckExact(val)) {
-    PyObject *key, *value;
-    Py_ssize_t pos = 0;
-    int ret;
-    sdict* entry = manager->create_sdict();
-    while (PyDict_Next(val, &pos, &key, &value)) {
-      const char* strkey = PyString_AsString(key);
-      if ((ret = rec_store_item(entry, strkey, value)) != 0) {
-        return ret;
-      }
-    }
-    sdict_set_sdict_item(sd, strkey, entry);
-    return 0;
-  } else if (1 /*sdic*/) {
-    printf("TODO sdict");
-    assert(0);
-  } else if (1 /*fucking class*/) {
-    printf("TODO class");
-    assert(0);
-  } else {
-    PyErr_SetString(PyExc_TypeError,"value type not supported");
-    return 1;
-  }
-  return 0;
-}
+rec_store_item(sdict* sd, const char* strkey, PyObject* val);
 
 static int
 SDict_set_item(PyObject* _self, PyObject* key, PyObject* val) {
@@ -407,6 +369,50 @@ SDict_create(offset_ptr<sdict_value_t> variant) {
   variant.get()->cache_obj(obj);
   obj->sd = (sdict*) variant->d.get();
   return (PyObject*) obj;
+}
+
+
+int
+rec_store_item(sdict* sd, const char* strkey, PyObject* val) {
+  if (val == Py_None) {
+    sdict_set_null_item(sd, strkey);
+    return 0;
+  } else if (PyString_Check(val)) {
+    sdict_set_string_item(sd, strkey, PyString_AsString(val));
+    return 0;
+  } else if (PyInt_Check(val)) {
+    long r = PyInt_AsLong(val);
+    if (PyErr_Occurred()) {
+      return 1;
+    }
+    sdict_set_number_item(sd, strkey, r);
+    return 0;
+  } else if (PyDict_CheckExact(val)) {
+    PyObject *key, *value;
+    Py_ssize_t pos = 0;
+    int ret;
+    sdict* entry = manager->create_sdict();
+    while (PyDict_Next(val, &pos, &key, &value)) {
+      const char* strkey = PyString_AsString(key);
+      if ((ret = rec_store_item(entry, strkey, value)) != 0) {
+        return ret;
+      }
+    }
+    sdict_set_sdict_item(sd, strkey, entry);
+    return 0;
+  } else if (PyObject_TypeCheck(val, &SDictType)) {
+    std::cout << "HERE\n";
+    sdict* other = ((SDict*)val)->sd;
+    sdict_set_sdict_item(sd, strkey, other);
+    return 0;
+  } else if (1 /*fucking class*/) {
+    PyErr_SetString(PyExc_TypeError,"TODO class instance");
+    return 1;
+  } else {
+    PyErr_SetString(PyExc_TypeError,"value type not supported");
+    return 1;
+  }
+  return 0;
 }
 
 /** END: dshared.Dict  **/
