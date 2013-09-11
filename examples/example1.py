@@ -53,13 +53,14 @@ class P(Process):
 
 dshared.init("my_shared_mem",2 ** 20)
 
-shared = dshared.dict({"initial":"initial val"})
+if __name__ == "__main__":
+    shared = dshared.dict({"initial":"initial val"})
 
-p1 = P("p1", shared)
-p1.start()
+    p1 = P("p1", shared)
+    p1.start()
 
-p2 = P("p2", shared)
-p2.start()
+    p2 = P("p2", shared)
+    p2.start()
 
-p1.join()
-p2.join()
+    p1.join()
+    p2.join()
