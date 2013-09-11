@@ -66,5 +66,7 @@ void sdict_set_string_item(sdict* sd, const char* key, const char* value);
 void sdict_set_number_item(sdict* sd, const char* key, long num);
 void sdict_set_sdict_item(sdict* sd, const char* key, sdict* value);
 offset_ptr<sdict_value_t> sdict_get_item(sdict* sd, const char* key);
+bool sdict_has_item(sdict* sd, const char* key);
+void sdict_delete_item(sdict* sd, const char* key);
 
 #endif

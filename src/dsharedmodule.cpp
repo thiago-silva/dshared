@@ -143,6 +143,14 @@ SDict_len(PyObject* self) {
   return ((SDict*)self)->sd->size();
 }
 
+int
+SDict_contains(PyObject *self, PyObject *value) {
+  sdict* sd = ((SDict*)self)->sd;
+
+  const char* strkey = PyString_AsString(value);
+  return sdict_has_item(sd, strkey);
+}
+
 static PyObject*
 SDict_get_item(PyObject* _self, PyObject* key) {
   SDict* self = (SDict*) _self;
@@ -171,6 +179,21 @@ typedef std::map<PyObject*, sdict*> visited_map_t;
 static int
 rec_store_item(sdict* sd, const char* strkey,
                PyObject* val, visited_map_t visited = visited_map_t());
+
+static int
+populate_sdict(sdict* entry, PyObject* val, visited_map_t visited = visited_map_t()) {
+  PyObject *key, *value;
+  Py_ssize_t pos = 0;
+  int ret;
+  visited[val] = entry;
+  while (PyDict_Next(val, &pos, &key, &value)) {
+    const char* strkey = PyString_AsString(key);
+    if ((ret = rec_store_item(entry, strkey, value, visited)) != 0) {
+      return ret;
+    }
+  }
+  return 0;
+}
 
 static int
 SDict_set_item(PyObject* _self, PyObject* key, PyObject* val) {
@@ -310,35 +333,8 @@ SDict_items(PyObject* _self, PyObject* args) {
 }
 
 static int
-SDict_init(SDict *self, PyObject *args, PyObject *kwds)
-{
-  if (manager == NULL) {
-    PyErr_SetString(PyExc_RuntimeError,"init() was not called");
-    return -1;
-  }
+SDict_init(SDict *self, PyObject *args, PyObject *kwds);
 
-  PyObject *py_dict;
-  if (PyTuple_Size(args) == 0) {
-    py_dict = PyDict_New();
-  } else {
-    if (!PyArg_UnpackTuple(args, "__init__", 1, 1, &py_dict)) {
-      PyErr_SetString(PyExc_TypeError,"expected one argument");
-      return -1;
-    }
-  }
-
-  if (!PyDict_Check(py_dict)) {
-    PyErr_SetString(PyExc_TypeError,"expected a dictionary");
-    return -1;
-  }
-
-
-  if (PyDict_Type.tp_init((PyObject *)self, PyTuple_New(0), PyDict_New()) < 0)
-    return -1;
-
-  self->sd = manager->create_sdict();
-  return 0;
-}
 
 PyObject*
 SDict_str(PyObject *self) {
@@ -371,6 +367,20 @@ SDict_methods[] = {
     {NULL, NULL},
 };
 
+static PySequenceMethods
+sdict_seq = {
+  0,/* sq_length */
+  0,/* sq_concat */
+  0,/* sq_repeat */
+  0,/* sq_item */
+  0,/* sq_slice */
+  0,/* sq_ass_item */
+  0,/* sq_ass_slice */
+  (objobjproc) SDict_contains,/* sq_contains*/
+  0, /* sq_inplace_concat*/
+  0 /* sq_inplace_repeat */
+};
+
 static PyTypeObject
 SDictType = {
     PyObject_HEAD_INIT(NULL)
@@ -385,7 +395,7 @@ SDictType = {
     0,                       /* tp_compare */
     0,                       /* tp_repr */
     0,                       /* tp_as_number */
-    0,                       /* tp_as_sequence */
+    &sdict_seq,              /* tp_as_sequence */
     &sdict_mapping,          /* tp_as_mapping */
     0,                       /* tp_hash */
     0,                       /* tp_call */
@@ -394,7 +404,7 @@ SDictType = {
     0,                       /* tp_setattro */
     0,                       /* tp_as_buffer */
     Py_TPFLAGS_DEFAULT |
-      Py_TPFLAGS_BASETYPE,   /* tp_flags */
+      Py_TPFLAGS_HAVE_SEQUENCE_IN, /* tp_flags */
     0,                       /* tp_doc */
     0,                       /* tp_traverse */
     0,                       /* tp_clear */
@@ -416,6 +426,39 @@ SDictType = {
 };
 
 
+int
+SDict_init(SDict *self, PyObject *args, PyObject *kwds) {
+  if (manager == NULL) {
+    PyErr_SetString(PyExc_RuntimeError,"init() was not called");
+    return -1;
+  }
+
+  PyObject *arg;
+  if (PyTuple_Size(args) == 0) {
+    arg = PyDict_New();
+  } else {
+    if (!PyArg_UnpackTuple(args, "__init__", 1, 1, &arg)) {
+      PyErr_SetString(PyExc_TypeError,"expected one argument");
+      return -1;
+    }
+  }
+
+  if (PyDict_CheckExact(arg)) {
+    self->sd = manager->create_sdict();
+    populate_sdict(self->sd, arg);
+  } else if (PyObject_TypeCheck(arg, &SDictType)) {
+    self->sd = ((SDict*)arg)->sd;
+  } else {
+    PyErr_SetString(PyExc_TypeError,"expected a dict or dshared.dict");
+    return -1;
+  }
+
+  if (PyDict_Type.tp_init((PyObject *)self, PyTuple_New(0), PyDict_New()) < 0) {
+    return -1;
+  }
+  return 0;
+}
+
 static PyObject*
 SDict_create(offset_ptr<sdict_value_t> variant) {
   SDict* obj = (SDict*) PyObject_CallObject((PyObject *) &SDictType, PyTuple_New(0));
@@ -428,7 +471,15 @@ SDict_create(offset_ptr<sdict_value_t> variant) {
 
 int
 rec_store_item(sdict* sd, const char* strkey, PyObject* val, visited_map_t  visited) {
-  if (val == Py_None) {
+  if (val == 0) { // delete item
+    if (!sdict_has_item(sd, strkey)) {
+      PyErr_SetString(PyExc_TypeError,strkey);
+      return 1;
+    } else {
+      sdict_delete_item(sd, strkey);
+      return 0;
+    }
+  } else if (val == Py_None) {
     sdict_set_null_item(sd, strkey);
     return 0;
   } else if (PyString_Check(val)) {
@@ -447,16 +498,11 @@ rec_store_item(sdict* sd, const char* strkey, PyObject* val, visited_map_t  visi
       sdict_set_sdict_item(sd, strkey, it->second);
       return 0;
     } else {
-      PyObject *key, *value;
-      Py_ssize_t pos = 0;
-      int ret;
       sdict* entry = manager->create_sdict();
-      visited[val] = entry;
-      while (PyDict_Next(val, &pos, &key, &value)) {
-        const char* strkey = PyString_AsString(key);
-        if ((ret = rec_store_item(entry, strkey, value, visited)) != 0) {
-          return ret;
-        }
+
+      int ret;
+      if ((ret = populate_sdict(entry, val, visited)) != 0) {
+        return ret;
       }
       sdict_set_sdict_item(sd, strkey, entry);
       return 0;
@@ -480,8 +526,7 @@ rec_store_item(sdict* sd, const char* strkey, PyObject* val, visited_map_t  visi
 /** dshared functions  **/
 
 static PyObject *
-dshared_init(PyObject *self, PyObject *args)
-{
+dshared_init(PyObject *self, PyObject *args) {
   if (manager != NULL) {
     PyErr_SetString(PyExc_RuntimeError,"init() already called");
     return NULL;

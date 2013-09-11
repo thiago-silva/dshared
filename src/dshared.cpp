@@ -107,3 +107,15 @@ sdict_get_item(sdict* sd, const char* strkey) {
   char_string* k = manager->create_string(strkey);
   return sd->at(*k);
 }
+
+bool
+sdict_has_item(sdict* sd, const char* key) {
+  char_string* k = manager->create_string(key);
+  return sd->find(*k) != sd->end();
+}
+
+void
+sdict_delete_item(sdict* sd, const char* key) {
+  char_string* k = manager->create_string(key);
+  sd->erase(*k);
+}
