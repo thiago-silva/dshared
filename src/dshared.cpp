@@ -41,6 +41,7 @@ sdict_value_t::cache() {
 
 void
 sdict_value_t::cache_obj(void* p) {
+  //std::cout << "caching " << p << "\n";
   (*pycache)[getpid()] = p;
 }
 
@@ -107,24 +108,25 @@ void
 sdict_set_null_item(offset_ptr<sdict> sd, const char* strkey) {
   char_string*  key = manager->create_string(strkey);
   sdict_value_t* val = manager->create_null_value();
-  sdict_pair_type p(*key, val);
-  sd->insert(p);
+  // sdict_pair_type p(*key, val);
+  (*sd)[*key] = val;
 }
 
 void
 sdict_set_string_item(offset_ptr<sdict> sd, const char* strkey, const char* value) {
   char_string*  key = manager->create_string(strkey);
   sdict_value_t* val = manager->create_string_value(value);
-  sdict_pair_type p(*key, val);
-  sd->insert(p);
+  // sdict_pair_type p(*key, val);
+  (*sd)[*key] = val;
+  // sd->insert(p);
 }
 
 void
 sdict_set_number_item(offset_ptr<sdict> sd, const char* strkey, long num) {
   char_string*  key = manager->create_string(strkey);
   sdict_value_t* val = manager->create_number_value(num);
-  sdict_pair_type p(*key, val);
-  sd->insert(p);
+  // sdict_pair_type p(*key, val);
+  (*sd)[*key] = val;
 }
 
 void
@@ -132,8 +134,8 @@ sdict_set_sdict_item(offset_ptr<sdict> sd, const char* strkey, offset_ptr<sdict>
   char_string*  key = manager->create_string(strkey);
   sdict_value_t* val = manager->create_sdict_value(value);
   //std::cout << "*sdict_set_sdict_item " << val << "\n";
-  sdict_pair_type p(*key, val);
-  sd->insert(p);
+  // sdict_pair_type p(*key, val);
+  (*sd)[*key] = val;
 }
 
 void
@@ -142,9 +144,10 @@ sdict_set_obj_item(offset_ptr<sdict> sd, const char* strkey, offset_ptr<sdict> v
   char_string*  key = manager->create_string(strkey);
   sdict_value_t* val = manager->create_obj_value(value, pyclass);
   val->cache_obj(local_pyobj);
-  // std::cout << "sdict_set_obj_item " << strkey << ":: " << val << "\n";
-  sdict_pair_type p(*key, val);
-  sd->insert(p);
+  //std::cout << "-->sdict_set_obj_item " << strkey << ":: " << val << "\n";
+  //std::cout << "-->sdict_set_obj_item cached:" << local_pyobj << "::" << val->has_cache() << "\n";
+  // sdict_pair_type p(*key, val);
+  (*sd)[*key] = val;
 }
 
 offset_ptr<sdict_value_t>

@@ -41,11 +41,9 @@ def pp(obj):
 
 class Foo():
     def __init__(self, num, owner):
-        print 'Foo.__init()'
         self.owner = owner
         self.bar = num
     def __getattr__(self, name):
-        print 'getattr:' + name
         return self.__dict__[name]
 
 class P():
@@ -58,7 +56,7 @@ class P():
     def insert(self, num):
         self.lock.acquire()
         key = self.pname + "_" + str(num)
-        rd = int(random.random() * 10) % 4
+        rd = int(random.random() * 10) % 5
         if rd == 0:
             print self.pname + ": inserting an object entry: " + key
             self.shared[key] = Foo(num, self.pname)
@@ -71,6 +69,9 @@ class P():
         if rd == 3:
             print self.pname + ": inserting a number entry: " + key
             self.shared[key] = int(random.random()*100)
+        if rd == 4:
+            print self.pname + ": inserting a list entry: " + key
+            self.shared[key] = range(0,int(random.random()*10)+1)
         self.lock.release()
 
     def show(self):
@@ -91,24 +92,24 @@ class P():
                 if not self.readonly:
                     self.insert(i)
                 self.show()
+                time.sleep(1)
         except Exception as e:
             print e
             print traceback.format_exc()
 
 
-dshared.init("my_shared_mem",2 ** 20)
+dshared.init("my_shared_mem",2 ** 25)
 
 if __name__ == "__main__":
     def r(name, lock, shared, readonly):
         P(name, lock, shared,readonly).run()
 
-    shared = dshared.dict({})
+    shared = dshared.col({})
 
     lock = Lock()
     p1 = Process(target=r, args=("p1", lock, shared, False))
-    p1.start()
-
     p2 = Process(target=r, args=("p2", lock, shared, False))
+    p1.start()
     p2.start()
     p1.join()
     p2.join()

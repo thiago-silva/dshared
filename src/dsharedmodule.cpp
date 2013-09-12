@@ -117,7 +117,7 @@ SDict_get_item(PyObject* _self, PyObject* key) {
   try {
     //std::cout << "get_item " << strkey << "\n";
     offset_ptr<sdict_value_t> val = sdict_get_item(self->sd, strkey);
-    //std::cout << "  get_item variant " << val << "\n";
+    //std::cout << "  get_item variant " << val <<"|" << val.get() << "\n";
     PyObject* obj = PyObject_from_variant(val);
     if (obj) {
       Py_INCREF(obj);
@@ -185,7 +185,7 @@ typedef struct {
 
 PyObject*
 SDict_Iter_iternext(PyObject *_self) {
-  // std::cout << "SDict_Iter_iternext\n";
+  //std::cout << "SDict_Iter_iternext\n";
   SDict_Iter* self = (SDict_Iter*)_self;
 
   if (self->current == self->collection->sd->end()) {
@@ -194,31 +194,32 @@ SDict_Iter_iternext(PyObject *_self) {
   } else {
     const char* strkey = self->current->first.c_str();
     offset_ptr<sdict_value_t> val = self->current->second;
-    // std::cout << "  SDict_Iter_iternext: iter variant for " << self->current->first << ": " << val << "|" << val.get() << "\n";
-    // std::cout << "  SDict_Iter_iternext: sneaking .d: " << val->d << "|" << val->d.get() << "tag: " << val->tag <<"\n";
+    //std::cout << "  SDict_Iter_iternext: iter variant for " << self->current->first << ": " << val << "|" << val.get() << "\n";
+    //std::cout << "  SDict_Iter_iternext: sneaking .d: " << val->d << "|" << val->d.get() << "tag: " << val->tag <<"\n";
+    //std::cout << "  SDict_Iter_iternext: sneaking ._odict_: " << val->_odict_ << "|" << val->_odict_.get() <<"\n";
     PyObject* tp;
     if ((tp= PyTuple_New(2)) == NULL) {
       return NULL;
     }
-    // std::cout << "  SDict_Iter_iternext: created tuple. seting key: " << strkey << "\n";
+    //std::cout << "  SDict_Iter_iternext: created tuple. seting key: " << strkey << "\n";
 
     if (PyTuple_SetItem(tp, 0, PyString_FromString(strkey)) != 0) {
       return NULL;
     }
-    // std::cout << "  SDict_Iter_iternext: created tuple, getting obj from variant\n";
+    //std::cout << "  SDict_Iter_iternext: created tuple, getting obj from variant\n";
     PyObject* obj;
     if ((obj = PyObject_from_variant(val)) == NULL) {
-      // std::cout << "  SDict_Iter_iternext: from variant is NULL!!!\n";
+      //std::cout << "  SDict_Iter_iternext: from variant is NULL!!!\n";
       return NULL;
     }
     Py_INCREF(obj);
-    // std::cout << "  SDict_Iter_iternext: add to tuple object: " << obj << "\n";
+    //std::cout << "  SDict_Iter_iternext: add to tuple object: " << obj << "\n";
     if (PyTuple_SetItem(tp, 1, obj) != 0) {
         return NULL;
     }
-    // std::cout << "  SDict_Iter_iternext: created set tuple value\n";
+    //std::cout << "  SDict_Iter_iternext: created set tuple value\n";
     self->current++;
-    // std::cout << "  SDict_Iter_iternext: returning tp\n";
+    //std::cout << "  SDict_Iter_iternext: returning tp\n";
     return tp;
   }
 }
@@ -466,9 +467,9 @@ SDict_create_dict(offset_ptr<sdict_value_t> variant) {
   //std::cout << "SUCC. SDict_create_dict:: setting pyobj-sd: " << variant->d << "|" << variant->d.get() << "\n";
   //obj->sd = offset_ptr<sdict>((sdict*)variant->d.get());
 
+  //std::cout << "CAST[before]  >>>" << variant->d << "|" << variant->d.get() << "\n";
   obj->sd = offset_ptr<sdict>(static_cast<sdict*>(variant->d.get()));
-
-  //std::cout << ".SDict_create_dict:: >>>>>> : " << obj->sd <<"|"<< obj->sd.get() << "\n";
+  //std::cout << "CAST :: >>>>>> : " << obj->sd <<"|"<< obj->sd.get() << "\n";
   return (PyObject*) obj;
 }
 
@@ -482,25 +483,44 @@ SDict_create_obj(offset_ptr<sdict_value_t> variant) {
   }
 
   //std::cout << "  setting _dict_'s sd to stored __dict__: " << variant->_odict_ <<"|"<<variant->_odict_.get() << "\n";
+  //std::cout << ".CAST[before]  >>>" << variant->_odict_ << "|" << variant->_odict_.get() << "\n";
+  _dict_->sd = offset_ptr<sdict>(static_cast<sdict*>(variant->_odict_.get()));
   _dict_->sd = offset_ptr<sdict>((sdict*)variant->_odict_.get());
-  //std::cout << "  >>>" << _dict_->sd << "|" << _dict_->sd.get() << "\n";
+  //std::cout << ".CAST  >>>" << _dict_->sd << "|" << _dict_->sd.get() << "\n";
 
-  //std::cout << "  creating 'proxy' instance for pyclass: " << variant->pyclass << "\n";
+  PyObject* klass = (PyObject*)variant->pyclass;
+
+  //std::cout << "  creating 'proxy' instance for pyclass: " << klass << "\n";
   PyObject* obj;
-  if ((obj = PyInstance_NewRaw((PyObject*)variant->pyclass, (PyObject*)_dict_)) == NULL) {
-    //std::cout << "  ERROR creating proxy instance. Trying fallback approach\n";
-    if ((obj = PyObject_CallObject((PyObject*)variant->pyclass, PyTuple_New(0))) == NULL) {
-      //std::cout << "  ERROR creating proxy instance\n";
+  if (PyClass_Check(klass)) { //old style class
+    if ((obj = PyInstance_NewRaw(klass, (PyObject*)_dict_)) == NULL) {
+      //std::cout << "  ERROR creating proxy for old-style class\n";
       return NULL;
     }
+  } else { //new style class
+    PyObject* __new__;
+    if ((__new__ = PyObject_GetAttrString(klass, "__new__")) == NULL) {
+      //std::cout << "  ERROR getting __new__\n";
+      return NULL;
+    }
+    PyObject* arg;
+    if ((arg= PyTuple_New(1)) == NULL) {
+      return NULL;
+    }
+    if (PyTuple_SetItem(arg, 0, klass) != 0) {
+      return NULL;
+    }
+
+    if ((obj = PyObject_CallObject(__new__, arg)) == NULL) {
+      //std::cout << "  ERROR creating proxy instance for new-style class " << variant->pyclass << "\n";
+      return NULL;
+    }
+    if (PyObject_SetAttrString(obj, "__dict__", (PyObject*)_dict_) != 0) {
+      //std::cout << "  ERROR setting __dict__ of new-style instance\n";
+      return NULL;
+    }
+
   }
-
-  //std::cout << "  setting 'proxy's __dict__\n";
-  // if (PyObject_SetAttrString(obj, "__dict__", (PyObject*)_dict_) == -1) {
-  //   //std::cout << "  ERROR setting __dict__\n";
-  //   return NULL;
-  // }
-
   variant->cache_obj(obj);
   return (PyObject*) obj;
 }
@@ -537,7 +557,7 @@ rec_store_item(offset_ptr<sdict> sd, PyObject* key, PyObject* val, visited_map_t
     sdict_set_number_item(sd, strkey, r);
     return 0;
   } else if (PyList_CheckExact(val)) {
-    //std::cout << "rec_store_item::list " << strkey << "\n";
+    //std::cout << "rec_store_item:: exact py list() " << strkey << "\n";
     visited_map_t::iterator it = visited.find(val);
     if (it != visited.end()) { //recursive structure
       sdict_set_sdict_item(sd, strkey, it->second);
@@ -555,7 +575,7 @@ rec_store_item(offset_ptr<sdict> sd, PyObject* key, PyObject* val, visited_map_t
       return 0;
     }
   } else if (PyDict_CheckExact(val)) {
-    //std::cout << "rec_store_item::dict() " << strkey << "\n";
+    //std::cout << "rec_store_item::exact py dict() " << strkey << "\n";
     visited_map_t::iterator it = visited.find(val);
     if (it != visited.end()) { //recursive structure
       sdict_set_sdict_item(sd, strkey, it->second);
@@ -573,6 +593,7 @@ rec_store_item(offset_ptr<sdict> sd, PyObject* key, PyObject* val, visited_map_t
       return 0;
     }
   } else if (PyObject_TypeCheck(val, &SDictType)) {
+    //std::cout << "rec_store_item:: sdict\n";
     offset_ptr<sdict> other = ((SDict*)val)->sd;
     sdict_set_sdict_item(sd, strkey, other);
     return 0;
@@ -590,9 +611,11 @@ rec_store_item(offset_ptr<sdict> sd, PyObject* key, PyObject* val, visited_map_t
       return 1;
     }
     //std::cout << "  OBJ: the  __class__ is " << pyclass << "\n";
+
     Py_INCREF(val);
+    //std::cout << &SDictType << "::" << PyObject_Type(_dict_) << "\n";
     if (PyObject_TypeCheck(_dict_, &SDictType)) { // blessed
-      // std::cout << "  OBJ: is SHARED already. Just set sd on our dict: " << ((SDict*)_dict_)->sd << "\n";
+      //std::cout << "  OBJ: is SHARED already. Just set sd on our dict: " << ((SDict*)_dict_)->sd << "\n";
       sdict_set_obj_item(sd, strkey,  ((SDict*)_dict_)->sd, pyclass, val);
       return 0;
     } else { //not blessed
@@ -602,7 +625,7 @@ rec_store_item(offset_ptr<sdict> sd, PyObject* key, PyObject* val, visited_map_t
         return 1;
       }
       int ret;
-      //std::cout << "  OBJ: populating our blessed __dict__: " << new_obj_dict <<"\n";
+      //std::cout << "  OBJ: populating our blessed __dict__: " << (void*)new_obj_dict <<"\n";
       if ((ret = populate_sdict_with_dict(new_obj_dict->sd, _dict_)) != 0) {
         return ret;
       }
@@ -611,7 +634,8 @@ rec_store_item(offset_ptr<sdict> sd, PyObject* key, PyObject* val, visited_map_t
       if (PyObject_SetAttrString(val, "__dict__", (PyObject*)new_obj_dict) != 0) {
         return 1;
       }
-      // std::cout << "  OBJ: adding sd " << new_obj_dict->sd << " to our dict\n";
+
+      //std::cout << "  OBJ: the __dict__'s sd " << new_obj_dict->sd << " will be set to our entry: " << strkey << "\n";
       sdict_set_obj_item(sd, strkey, new_obj_dict->sd, pyclass, val);
       return 0;
     }
