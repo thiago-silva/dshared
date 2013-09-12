@@ -134,16 +134,15 @@ SDict_for_sdict(offset_ptr<sdict_value_t> val) {
 static PyObject*
 SDict_for_pyobj(offset_ptr<sdict_value_t> val) {
   //std::cout << "SDict_for_pyobj has cache? " << val->has_cache() << "\n";
-  PyObject* obj;
+  PyObject* obj = NULL;
   if (val->has_cache()) {
     obj = (PyObject*)val->cache();
-    //std::cout << "  returning cache cache: " << obj << "\n";
+    // std::cout << "  returning cache: " << obj << "\n";
   } else {
-    //std::cout << "SDict_for_pyobj has cache?no! creating instance\n";
-    PyObject* obj = SDict_create_obj(val);
-    //std::cout << "SDict_for_pyobj created for this pid: " << obj << "\n";
+    // std::cout << "SDict_for_pyobj has cache?no! creating instance\n";
+    obj = SDict_create_obj(val);
+    // std::cout << "SDict_for_pyobj created for this pid: " << obj << "\n";
   }
-  Py_INCREF(obj);
   return obj;
 }
 
@@ -161,7 +160,7 @@ PyObject_from_variant(offset_ptr<sdict_value_t> val) {
     case sdict_value_t::PYOBJ:
       return SDict_for_pyobj(val);
   }
-  //std::cout << "WTF: " << val->tag << "\n";
+  //std::cout << "WTF tag: " << val->tag << "\n";
   PyErr_SetString(PyExc_TypeError,"unknown type tag ");
   return NULL;
 }
@@ -191,11 +190,14 @@ SDict_get_item(PyObject* _self, PyObject* key) {
   const char* strkey = PyString_AsString(key);
 
   try {
+    //std::cout << "get_item " << strkey << "\n";
     offset_ptr<sdict_value_t> val = sdict_get_item(self->sd, strkey);
+    //std::cout << "  get_item variant " << val << "\n";
     PyObject* obj = PyObject_from_variant(val);
-    if (obj == NULL) {
-      return NULL;
+    if (obj) {
+      Py_INCREF(obj);
     }
+    //std::cout << "  get_item returning " << obj << "\n";
     return obj;
   } catch(...) { //out of range
     PyErr_SetString(PyExc_KeyError,strkey);
@@ -232,8 +234,6 @@ SDict_set_item(PyObject* _self, PyObject* key, PyObject* val) {
 }
 
 
-
-
 typedef struct {
   PyObject_HEAD
   SDict* collection;
@@ -242,7 +242,7 @@ typedef struct {
 
 PyObject*
 SDict_Iter_iternext(PyObject *_self) {
-  //std::cout << "SDict_Iter_iternext\n";
+  // std::cout << "SDict_Iter_iternext\n";
   SDict_Iter* self = (SDict_Iter*)_self;
 
   if (self->current == self->collection->sd->end()) {
@@ -251,30 +251,31 @@ SDict_Iter_iternext(PyObject *_self) {
   } else {
     const char* strkey = self->current->first.c_str();
     offset_ptr<sdict_value_t> val = self->current->second;
-    //std::cout << "  SDict_Iter_iternext: iter variant for " << self->current->first << ": " << val << "|" << val.get() << "\n";
-    //std::cout << "  SDict_Iter_iternext: sneaking .d: " << val->d << "|" << val->d.get() << "tag: " << val->tag <<"\n";
+    // std::cout << "  SDict_Iter_iternext: iter variant for " << self->current->first << ": " << val << "|" << val.get() << "\n";
+    // std::cout << "  SDict_Iter_iternext: sneaking .d: " << val->d << "|" << val->d.get() << "tag: " << val->tag <<"\n";
     PyObject* tp;
     if ((tp= PyTuple_New(2)) == NULL) {
       return NULL;
     }
-    //std::cout << "  SDict_Iter_iternext: created tuple. seting key: " << strkey << "\n";
+    // std::cout << "  SDict_Iter_iternext: created tuple. seting key: " << strkey << "\n";
 
     if (PyTuple_SetItem(tp, 0, PyString_FromString(strkey)) != 0) {
       return NULL;
     }
-    //std::cout << "  SDict_Iter_iternext: created tuple, getting obj from variant\n";
+    // std::cout << "  SDict_Iter_iternext: created tuple, getting obj from variant\n";
     PyObject* obj;
     if ((obj = PyObject_from_variant(val)) == NULL) {
-      //std::cout << "  SDict_Iter_iternext: from variant is NULL!!!\n";
+      // std::cout << "  SDict_Iter_iternext: from variant is NULL!!!\n";
       return NULL;
     }
-    //std::cout << "  SDict_Iter_iternext: add to tuple object: " << obj << "\n";
+    Py_INCREF(obj);
+    // std::cout << "  SDict_Iter_iternext: add to tuple object: " << obj << "\n";
     if (PyTuple_SetItem(tp, 1, obj) != 0) {
         return NULL;
     }
-    //std::cout << "  SDict_Iter_iternext: created set tuple value\n";
+    // std::cout << "  SDict_Iter_iternext: created set tuple value\n";
     self->current++;
-    //std::cout << "  SDict_Iter_iternext: returning tp\n";
+    // std::cout << "  SDict_Iter_iternext: returning tp\n";
     return tp;
   }
 }
@@ -538,15 +539,20 @@ SDict_create_obj(offset_ptr<sdict_value_t> variant) {
 
   //std::cout << "  creating 'proxy' instance for pyclass: " << variant->pyclass << "\n";
   PyObject* obj;
-  if ((obj = PyObject_CallObject((PyObject*)variant->pyclass, PyTuple_New(0))) == NULL) {
+  if ((obj = PyInstance_NewRaw((PyObject*)variant->pyclass, (PyObject*)_dict_)) == NULL) {
     //std::cout << "  ERROR creating proxy instance\n";
     return NULL;
   }
+
+  // if ((obj = PyObject_CallObject((PyObject*)variant->pyclass, PyTuple_New(0))) == NULL) {
+  //   //std::cout << "  ERROR creating proxy instance\n";
+  //   return NULL;
+  // }
   //std::cout << "  setting 'proxy's __dict__\n";
-  if (PyObject_SetAttrString(obj, "__dict__", (PyObject*)_dict_) == -1) {
-    //std::cout << "  ERROR setting __dict__\n";
-    return NULL;
-  }
+  // if (PyObject_SetAttrString(obj, "__dict__", (PyObject*)_dict_) == -1) {
+  //   //std::cout << "  ERROR setting __dict__\n";
+  //   return NULL;
+  // }
 
   variant->cache_obj(obj);
   return (PyObject*) obj;
@@ -559,6 +565,8 @@ rec_store_item(offset_ptr<sdict> sd, PyObject* key, PyObject* val, visited_map_t
     return 1;
   }
   const char* strkey = PyString_AsString(key);
+
+  //std::cout << "rec_store_item " << strkey << "\n";
 
   if (val == 0) { // delete item
     if (!sdict_has_item(sd, strkey)) {
@@ -605,11 +613,12 @@ rec_store_item(offset_ptr<sdict> sd, PyObject* key, PyObject* val, visited_map_t
     return 0;
   } else if (PyObject_HasAttrString(val, "__class__")) {
     //std::cout << "SETTING OBJECT " << strkey << ": " << val << "\n";
-    SDict* _dict_;
-    if ((_dict_ = (SDict*)PyObject_GetAttrString(val, "__dict__")) == NULL) {
+    PyObject* _dict_;
+    if ((_dict_ = PyObject_GetAttrString(val, "__dict__")) == NULL) {
       return 1;
     }
     //std::cout << "  OBJ: the __dict__: " << _dict_ << "\n";
+
 
     PyObject* pyclass;
     if ((pyclass = PyObject_GetAttrString(val, "__class__")) == NULL) {
@@ -618,8 +627,8 @@ rec_store_item(offset_ptr<sdict> sd, PyObject* key, PyObject* val, visited_map_t
     //std::cout << "  OBJ: the  __class__ is " << pyclass << "\n";
     Py_INCREF(val);
     if (PyObject_TypeCheck(_dict_, &SDictType)) { // blessed
-      //std::cout << "  OBJ: is SHARED already. Just set sd on our dict: " << _dict_->sd << "\n";
-      sdict_set_obj_item(sd, strkey, _dict_->sd, pyclass, val);
+      // std::cout << "  OBJ: is SHARED already. Just set sd on our dict: " << ((SDict*)_dict_)->sd << "\n";
+      sdict_set_obj_item(sd, strkey,  ((SDict*)_dict_)->sd, pyclass, val);
     } else { //not blessed
       //std::cout << "  OBJ: is NOT shared. Creating SDict\n";
       SDict* new_obj_dict;
@@ -628,22 +637,24 @@ rec_store_item(offset_ptr<sdict> sd, PyObject* key, PyObject* val, visited_map_t
       }
       int ret;
       //std::cout << "  OBJ: populating our blessed __dict__: " << new_obj_dict <<"\n";
-      if ((ret = populate_sdict(new_obj_dict->sd, val)) != 0) {
+      if ((ret = populate_sdict(new_obj_dict->sd, _dict_)) != 0) {
         return ret;
       }
+
       //std::cout << "  OBJ: setting new sdict as __dict__\n";
-      if (PyObject_SetAttrString(val, "__dict__", (PyObject*)new_obj_dict) == -1) {
+      if (PyObject_SetAttrString(val, "__dict__", (PyObject*)new_obj_dict) != 0) {
         return 1;
       }
-      //std::cout << "  OBJ: adding sd " << new_obj_dict->sd << " to our dict\n";
+      // std::cout << "  OBJ: adding sd " << new_obj_dict->sd << " to our dict\n";
       sdict_set_obj_item(sd, strkey, new_obj_dict->sd, pyclass, val);
+      return 0;
     }
-    return PyObject_SetAttrString(val, "__dict__", PyDict_New());
   } else {
     PyErr_SetString(PyExc_TypeError,"value type not supported");
     return 1;
   }
-  return 0;
+  PyErr_SetString(PyExc_TypeError,"object not supported");
+  return 1;
 }
 
 /** END: dshared.Dict  **/

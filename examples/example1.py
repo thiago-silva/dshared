@@ -23,44 +23,94 @@ import pprint
 import time
 import random
 import md5
-from multiprocessing import Process
+from multiprocessing import Process, Lock
 import sys
+import traceback
 
-class P(Process):
-    def __init__(self, pname, shared):
-        super(P, self).__init__()
+def my_safe_repr(object, context, maxlevels, level):
+    typ = pprint._type(object)
+    if typ is unicode:
+        object = str(object)
+    return pprint._safe_repr(object, context, maxlevels, level)
+
+printer = pprint.PrettyPrinter(1,80,3)
+printer.format = my_safe_repr
+
+def pp(obj):
+    return printer.pformat(obj)
+
+class Foo():
+    def __init__(self, num, owner):
+        print 'Foo.__init()'
+        self.owner = owner
+        self.bar = num
+    def __getattr__(self, name):
+        print 'getattr:' + name
+        return self.__dict__[name]
+
+class P():
+    def __init__(self, pname, lock, shared, readonly = False):
+        self.lock = lock
         self.pname = pname
         self.shared = shared
+        self.readonly = readonly
 
     def insert(self, num):
+        self.lock.acquire()
         key = self.pname + "_" + str(num)
-        print self.pname + ": inserting a new entry: " + key
-        self.shared[key] = md5.md5(key).hexdigest()
+        rd = int(random.random() * 10) % 4
+        if rd == 0:
+            print self.pname + ": inserting an object entry: " + key
+            self.shared[key] = Foo(num, self.pname)
+        if rd == 1:
+            print self.pname + ": inserting a dict entry: " + key
+            self.shared[key] = {md5.md5(key).hexdigest() : int(random.random()*100)}
+        if rd == 2:
+            print self.pname + ": inserting a string entry: " + key
+            self.shared[key] = md5.md5(key).hexdigest()
+        if rd == 3:
+            print self.pname + ": inserting a number entry: " + key
+            self.shared[key] = int(random.random()*100)
+        self.lock.release()
 
     def show(self):
-        print self.pname + " entries [["
+        self.lock.acquire()
+        print self.pname + " entries " + str(len(self.shared)) + ": [["
         for k,v in self.shared.iteritems():
-            print "  " + self.pname + ": [" + k + "] = " + v
+            if hasattr(v,'__dict__'):
+                print "  " + self.pname + ": [" + k + "] = Foo::" + pp(v.__dict__)
+            else:
+                print "  " + self.pname + ": [" + k + "] = " + pp(v)
         print self.pname + "]]\n"
+        self.lock.release()
 
     def run(self):
         print '** running: ' + self.pname
-        for i in range(0,9):
-            time.sleep(3)
-            self.insert(i)
-            self.show()
+        try :
+            for i in range(0,20):
+                if not self.readonly:
+                    self.insert(i)
+                self.show()
+        except Exception as e:
+            print e
+            print traceback.format_exc()
 
 
 dshared.init("my_shared_mem",2 ** 20)
 
 if __name__ == "__main__":
-    shared = dshared.dict({"initial":"initial val"})
+    def r(name, lock, shared, readonly):
+        P(name, lock, shared,readonly).run()
 
-    p1 = P("p1", shared)
+    shared = dshared.dict({})
+
+    lock = Lock()
+    p1 = Process(target=r, args=("p1", lock, shared, False))
     p1.start()
 
-    p2 = P("p2", shared)
+    p2 = Process(target=r, args=("p2", lock, shared, False))
     p2.start()
-
     p1.join()
     p2.join()
+
+print "done!"

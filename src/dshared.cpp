@@ -142,6 +142,7 @@ sdict_set_obj_item(offset_ptr<sdict> sd, const char* strkey, offset_ptr<sdict> v
   char_string*  key = manager->create_string(strkey);
   sdict_value_t* val = manager->create_obj_value(value, pyclass);
   val->cache_obj(local_pyobj);
+  // std::cout << "sdict_set_obj_item " << strkey << ":: " << val << "\n";
   sdict_pair_type p(*key, val);
   sd->insert(p);
 }
