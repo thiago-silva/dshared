@@ -137,11 +137,11 @@ SDict_for_pyobj(offset_ptr<sdict_value_t> val) {
   PyObject* obj = NULL;
   if (val->has_cache()) {
     obj = (PyObject*)val->cache();
-    // std::cout << "  returning cache: " << obj << "\n";
+    //std::cout << "  returning cache: " << obj << "\n";
   } else {
-    // std::cout << "SDict_for_pyobj has cache?no! creating instance\n";
+    //std::cout << "SDict_for_pyobj has cache?no! creating instance\n";
     obj = SDict_create_obj(val);
-    // std::cout << "SDict_for_pyobj created for this pid: " << obj << "\n";
+    //std::cout << "SDict_for_pyobj created for this pid: " << obj << "\n";
   }
   return obj;
 }
@@ -526,7 +526,7 @@ SDict_create_dict(offset_ptr<sdict_value_t> variant) {
 
 static PyObject*
 SDict_create_obj(offset_ptr<sdict_value_t> variant) {
-  //std::cout << "SDict_create_obj:: creating Py _dict_\n";
+  //std::cout << "SDict_create_obj:: creating py _dict_\n";
   SDict* _dict_;
   if ((_dict_ = (SDict*) PyObject_CallObject((PyObject *) &SDictType, PyTuple_New(0))) == NULL) {
     //std::cout << "  UOPS, could not create a SDict for obj.__dict__\n";
@@ -540,14 +540,13 @@ SDict_create_obj(offset_ptr<sdict_value_t> variant) {
   //std::cout << "  creating 'proxy' instance for pyclass: " << variant->pyclass << "\n";
   PyObject* obj;
   if ((obj = PyInstance_NewRaw((PyObject*)variant->pyclass, (PyObject*)_dict_)) == NULL) {
-    //std::cout << "  ERROR creating proxy instance\n";
-    return NULL;
+    //std::cout << "  ERROR creating proxy instance. Trying fallback approach\n";
+    if ((obj = PyObject_CallObject((PyObject*)variant->pyclass, PyTuple_New(0))) == NULL) {
+      //std::cout << "  ERROR creating proxy instance\n";
+      return NULL;
+    }
   }
 
-  // if ((obj = PyObject_CallObject((PyObject*)variant->pyclass, PyTuple_New(0))) == NULL) {
-  //   //std::cout << "  ERROR creating proxy instance\n";
-  //   return NULL;
-  // }
   //std::cout << "  setting 'proxy's __dict__\n";
   // if (PyObject_SetAttrString(obj, "__dict__", (PyObject*)_dict_) == -1) {
   //   //std::cout << "  ERROR setting __dict__\n";
