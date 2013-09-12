@@ -64,7 +64,7 @@ typedef map<char_string, pair_value_t, strnum_cmp, sdict_pair_type_allocator>  s
 
 class MManager {
 public:
-  MManager(const char* _name, unsigned long _size);
+  MManager(const char* _name, long long _size);
   ~MManager();
 
   sdict*          create_sdict();

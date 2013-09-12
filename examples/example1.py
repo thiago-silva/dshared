@@ -98,7 +98,7 @@ class P():
             print traceback.format_exc()
 
 
-dshared.init("my_shared_mem",2 ** 25)
+dshared.init("my_shared_mem",2 ** 16)
 
 if __name__ == "__main__":
     def r(name, lock, shared, readonly):

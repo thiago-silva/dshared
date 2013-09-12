@@ -45,7 +45,7 @@ sdict_value_t::cache_obj(void* p) {
   (*pycache)[getpid()] = p;
 }
 
-MManager::MManager(const char* _name, unsigned long _size) :
+MManager::MManager(const char* _name, long long _size) :
   name(_name),
   size(_size),
   segment(create_only , name /*segment name*/ ,_size), //segment size in bytes

@@ -668,12 +668,13 @@ dshared_init(PyObject *self, PyObject *args) {
     PyErr_SetString(PyExc_TypeError,"expected string as first argument");
     return NULL;
   }
-  if (!PyInt_Check(py_size)) {
+
+  if (!PyInt_Check(py_size) && !PyLong_Check(py_size)) {
     PyErr_SetString(PyExc_TypeError,"expected integer as second argument");
     return NULL;
   }
 
-  long size = PyLong_AsLong(py_size);
+  PY_LONG_LONG size = PyLong_AsLongLong(py_size);
   const char* name = PyString_AsString(py_name);
 
   try {
