@@ -92,6 +92,12 @@ MManager::create_sdict_value(offset_ptr<sdict> d) {
 }
 
 sdict_value_t*
+MManager::create_slist_value(offset_ptr<sdict> d) {
+  return segment.construct<sdict_value_t>
+    (boost::interprocess::anonymous_instance)(this, sdict_value_t::SLIST, 0, "", d, (void*)NULL, (void*)NULL, void_alloc);
+}
+
+sdict_value_t*
 MManager::create_obj_value(offset_ptr<sdict> _dict_, void* pyclass) {
   return segment.construct<sdict_value_t>
     (boost::interprocess::anonymous_instance)(this,
@@ -133,6 +139,15 @@ void
 sdict_set_sdict_item(offset_ptr<sdict> sd, const char* strkey, offset_ptr<sdict> value) {
   char_string*  key = manager->create_string(strkey);
   sdict_value_t* val = manager->create_sdict_value(value);
+  //std::cout << "*sdict_set_sdict_item " << val << "\n";
+  // sdict_pair_type p(*key, val);
+  (*sd)[*key] = val;
+}
+
+void
+sdict_set_slist_item(offset_ptr<sdict> sd, const char* strkey, offset_ptr<sdict> value) {
+  char_string*  key = manager->create_string(strkey);
+  sdict_value_t* val = manager->create_slist_value(value);
   //std::cout << "*sdict_set_sdict_item " << val << "\n";
   // sdict_pair_type p(*key, val);
   (*sd)[*key] = val;

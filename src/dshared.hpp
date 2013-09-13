@@ -26,6 +26,7 @@ public:
     NUMBER,
     STRING,
     SDICT,
+    SLIST,
     PYOBJ,
   } TAG;
 
@@ -73,6 +74,7 @@ public:
   sdict_value_t*  create_number_value(long num);
   sdict_value_t*  create_string_value(const char* str);
   sdict_value_t*  create_sdict_value(offset_ptr<sdict> d);
+  sdict_value_t*  create_slist_value(offset_ptr<sdict> d);
   sdict_value_t*  create_obj_value(offset_ptr<sdict> _dict_, void* pytype);
 
   const char* name;
@@ -85,6 +87,7 @@ void sdict_set_null_item(offset_ptr<sdict> sd, const char* key);
 void sdict_set_string_item(offset_ptr<sdict> sd, const char* key, const char* value);
 void sdict_set_number_item(offset_ptr<sdict> sd, const char* key, long num);
 void sdict_set_sdict_item(offset_ptr<sdict> sd, const char* key, offset_ptr<sdict> value);
+void sdict_set_slist_item(offset_ptr<sdict> sd, const char* key, offset_ptr<sdict> value);
 void sdict_set_obj_item(offset_ptr<sdict> sd, const char* key, offset_ptr<sdict> value,
                         void* pyclass, void* local_obj_value);
 
