@@ -5,27 +5,53 @@ A quick 'n dirty python extension providing shared memory dictionaries.
 
 ## Summary
 
-This extension creates an shared memory segment where python values can be
-stored and accessed from distinct processes -- no IPC, pickling/wiring, not
-even locking will get in your way.
+This extension creates a shared memory segment where (some) python values can
+be stored and accessed from distinct processes -- no IPC, no
+pickling/serializing, no wiring, not even locking will get in your way. Plain
+direct access to memory between parent/child processes. An uninteresting
+example:
+
+```python
+import dshared
+from multiprocessing import Process
+dshared.init("mymem", 2 ** 10) #creates shared mem of size 2 ** 10
+
+shm = dshared.col()
+
+def in_process_1():
+  shm['d'] = {'key':'val'}
+
+def later_on_in_process_2():
+   print shm['d']['key']
+
+p = Process(target=in_process_1)
+p.start()
+p.join()
+p = Process(target=later_on_in_process_2)
+p.start()
+p.join()
+```
 
 **important** notes to keep in mind:
 
 * Currently, None, ints/longs, strings, dicts and lists can be stored in the
   shared memory. Dicts and lists may be recursive.
 
-* Class instances are work in progress.
+* Instances of user defined classes are victims of evil voodoo when assigned
+  to a shared dictionary (and so are the objects it points to! Somethings are
+  just too wrong to be left unsaid).
 
-* This code was not written with reliability in mind (and if you noticed there
-  is no "tests" directory here, you should know that it does not belong in
-  production environments).
+* This code was not written with reliability in mind -- *far* from it. And if
+  you noticed there is no "tests" directory here, that should settle any crazy
+  ideas related to putting this stuff in production environments.
 
-* Last but not least, I do not intend to maintain this library, as it was
-  written to fix a very particular and temporary problem (for instance, I
-  didn't even need support for floating point values in the SM). So, in the
+* Last but not least, I do not intend to maintain or improve this library, as
+  it was written to fix a very particular and temporary problem. So, in the
   case you find this extension somehow useful and wish to fork/improve it,
   feel free to let me know so I can refer visitors of this repository to your
   repository.
+
+Use it at your own risk, bla bla bla...Now that you have been warned:
 
 ## List of dependencies
 
