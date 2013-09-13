@@ -48,6 +48,9 @@ static PyObject*
 SDict_create_obj(offset_ptr<sdict_value_t>);
 
 static PyObject*
+SDict_iter(PyObject* self);
+
+static PyObject*
 SDict_for_sdict(offset_ptr<sdict_value_t> val) {
   //std::cout << "SDict_for_sdict\n";
   //std::cout << "   SDict_for_sdict: has in cache?" << val->has_cache() << "\n";
@@ -210,6 +213,7 @@ SDict_Iter_iternext(PyObject *_self) {
 
   if (self->current == self->collection->sd->end()) {
     PyErr_SetNone(PyExc_StopIteration);
+    //std::cout << "  SDict_Iter_iternext: StopIteration\n";
     return NULL;
   } else {
     const char* strkey = self->current->first.c_str();
@@ -344,6 +348,25 @@ SDict_items(PyObject* _self, PyObject* args) {
 }
 
 static PyObject*
+SDict_iter(PyObject* self) {
+  //std::cout << "sdict::__iter__\n";
+  SDict_Iter* iterator = (SDict_Iter*)  PyObject_New(SDict_Iter, &SDict_IterType);
+  if (!iterator) return NULL;
+  //std::cout << "initing iter\n";
+  if (!PyObject_Init((PyObject *)iterator, &SDict_IterType)) {
+    Py_DECREF(iterator);
+    return NULL;
+  }
+
+  //std::cout << "setting col\n";
+  iterator->collection = (SDict*) self;
+  iterator->current = iterator->collection->sd->begin();
+  //std::cout << "returning iter with items: " << iterator->collection->sd->size() << "\n";
+  Py_INCREF(iterator);
+  return (PyObject*) iterator;
+}
+
+static PyObject*
 SDict_append(PyObject* _self, PyObject* args) {
   SDict* self = (SDict*) _self;
 
@@ -437,13 +460,14 @@ SDictType = {
     0,                       /* tp_setattro */
     0,                       /* tp_as_buffer */
     Py_TPFLAGS_DEFAULT |
-      Py_TPFLAGS_HAVE_SEQUENCE_IN, /* tp_flags */
+      Py_TPFLAGS_HAVE_SEQUENCE_IN | /* tp_flags */
+      Py_TPFLAGS_HAVE_ITER,
     0,                       /* tp_doc */
     0,                       /* tp_traverse */
     0,                       /* tp_clear */
     0,                       /* tp_richcompare */
     0,                       /* tp_weaklistoffset */
-    0,                       /* tp_iter */
+    SDict_iter,              /* tp_iter */
     0,                       /* tp_iternext */
     SDict_methods,           /* tp_methods */
     0,                       /* tp_members */
@@ -535,6 +559,7 @@ SDict_create_obj(offset_ptr<sdict_value_t> variant) {
   //std::cout << "  creating 'proxy' instance for pyclass: " << klass << "\n";
   PyObject* obj;
   if (PyClass_Check(klass)) { //old style class
+    //std::cout << "  creating old-style raw\n";
     if ((obj = PyInstance_NewRaw(klass, (PyObject*)_dict_)) == NULL) {
       //std::cout << "  ERROR creating proxy for old-style class\n";
       return NULL;
@@ -557,12 +582,18 @@ SDict_create_obj(offset_ptr<sdict_value_t> variant) {
       //std::cout << "  ERROR creating proxy instance for new-style class " << variant->pyclass << "\n";
       return NULL;
     }
-    if (PyObject_SetAttrString(obj, "__dict__", (PyObject*)_dict_) != 0) {
-      //std::cout << "  ERROR setting __dict__ of new-style instance\n";
-      return NULL;
-    }
-
   }
+  //std::cout << "  setting __dict__\n";
+  if (PyObject_SetAttrString(obj, "__dict__", (PyObject*)_dict_) != 0) {
+    //std::cout << "  ERROR setting __dict__ of new-style instance\n";
+    return NULL;
+  }
+  //std::cout << "  setting __class__\n";
+  if (PyObject_SetAttrString(obj, "__class__", klass) != 0) {
+    //std::cout << "  ERROR setting __dict__ of new-style instance\n";
+    return NULL;
+  }
+
   variant->cache_obj(obj);
   return (PyObject*) obj;
 }
