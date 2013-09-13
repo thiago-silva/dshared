@@ -26,6 +26,13 @@
 //single static shared memory [sorry]
 MManager* manager = NULL;
 
+const char*
+py_unicode_to_string(PyObject* unic) {
+  Py_ssize_t sz = PyUnicode_GetSize(unic);
+  Py_UNICODE* unistr = PyUnicode_AS_UNICODE(unic);
+  PyObject* ustr = PyUnicode_Encode(unistr, sz, "utf-8", "replace");
+  return PyString_AsString(ustr);
+}
 
 /** dshared.Dict  **/
 
@@ -99,20 +106,33 @@ int
 SDict_contains(PyObject *self, PyObject *value) {
   offset_ptr<sdict> sd = ((SDict*)self)->sd;
 
-  const char* strkey = PyString_AsString(value);
-  return sdict_has_item(sd, strkey);
+  if (PyString_Check(value)) {
+    const char* strkey = PyString_AsString(value);
+    return sdict_has_item(sd, strkey);
+  } else if (PyUnicode_Check(value)) {
+    const char* strkey = py_unicode_to_string(value);
+    return sdict_has_item(sd, strkey);
+  } else {
+    PyErr_SetString(PyExc_TypeError,"unknown type for sdict index");
+    return -1;
+  }
 }
 
 static PyObject*
 SDict_get_item(PyObject* _self, PyObject* key) {
   SDict* self = (SDict*) _self;
 
-  if (!PyString_Check(key)) {
+  const char* strkey;
+  if (PyString_Check(key)) {
+    strkey = PyString_AsString(key);
+  } else if (PyUnicode_Check(key)) {
+    strkey = py_unicode_to_string(key);
+  } else {
     PyErr_SetString(PyExc_TypeError,"only strings can index sdict");
     return NULL;
   }
 
-  const char* strkey = PyString_AsString(key);
+  strkey = PyString_AsString(key);
 
   try {
     //std::cout << "get_item " << strkey << "\n";
@@ -323,6 +343,26 @@ SDict_items(PyObject* _self, PyObject* args) {
   return lst;
 }
 
+static PyObject*
+SDict_append(PyObject* _self, PyObject* args) {
+  SDict* self = (SDict*) _self;
+
+  PyObject *arg;
+  if (!PyArg_UnpackTuple(args, "append", 1, 1, &arg)) {
+    PyErr_SetString(PyExc_TypeError,"expected one argument");
+    return NULL;
+  }
+
+  int size = self->sd->size();
+  std::stringstream s;
+  s << size;
+  if (rec_store_item(self->sd, PyString_FromString(s.str().c_str()), arg) != 0) {
+    return NULL;
+  }
+  Py_INCREF(Py_None);
+  return Py_None;
+}
+
 static int
 SDict_init(SDict *self, PyObject *args, PyObject *kwds);
 
@@ -355,6 +395,8 @@ SDict_methods[] = {
      PyDoc_STR("iterator for items")},
     {"items", (PyCFunction)SDict_items, METH_NOARGS,
      PyDoc_STR("dict items")},
+    {"append", (PyCFunction)SDict_append, METH_VARARGS,
+     PyDoc_STR("append")},
     {NULL, NULL},
 };
 
@@ -527,11 +569,15 @@ SDict_create_obj(offset_ptr<sdict_value_t> variant) {
 
 int
 rec_store_item(offset_ptr<sdict> sd, PyObject* key, PyObject* val, visited_map_t  visited) {
-  if (!PyString_Check(key)) {
+  const char* strkey;
+  if (PyString_Check(key)) {
+    strkey = PyString_AsString(key);
+  } else if (PyUnicode_Check(key)) {
+    strkey = py_unicode_to_string(key);
+  } else {
     PyErr_SetString(PyExc_TypeError,"only strings can index sdict");
     return 1;
   }
-  const char* strkey = PyString_AsString(key);
 
   //std::cout << "rec_store_item " << strkey << "\n";
 
@@ -548,6 +594,9 @@ rec_store_item(offset_ptr<sdict> sd, PyObject* key, PyObject* val, visited_map_t
     return 0;
   } else if (PyString_Check(val)) {
     sdict_set_string_item(sd, strkey, PyString_AsString(val));
+    return 0;
+  } else if (PyUnicode_Check(val)) {
+    sdict_set_string_item(sd, strkey, py_unicode_to_string(val));
     return 0;
   } else if (PyInt_Check(val)) {
     long r = PyInt_AsLong(val);
