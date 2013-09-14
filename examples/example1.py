@@ -88,7 +88,7 @@ class P():
     def run(self):
         print '** running: ' + self.pname
         try :
-            for i in range(0,20):
+            for i in range(0,10):
                 if not self.readonly:
                     self.insert(i)
                 self.show()
@@ -98,13 +98,13 @@ class P():
             print traceback.format_exc()
 
 
-dshared.init("my_shared_mem",2 ** 16)
+dshared.init("my_shared_mem",2 ** 15)
 
 if __name__ == "__main__":
     def r(name, lock, shared, readonly):
         P(name, lock, shared,readonly).run()
 
-    shared = dshared.col({})
+    shared = dshared.dict({})
 
     lock = Lock()
     p1 = Process(target=r, args=("p1", lock, shared, False))
