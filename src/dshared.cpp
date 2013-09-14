@@ -15,7 +15,7 @@ strnum_cmp::operator() (const char_string& x, const char_string& y) const {
 
 extern MManager* manager;
 
-sdict_value_t::sdict_value_t(MManager* m, int _tag, int _num, const char* _str, offset_ptr<void> _d, offset_ptr<void> __odict__, void* _pyclass, void_allocator alloc)
+smap_value_t::smap_value_t(MManager* m, int _tag, int _num, const char* _str, offset_ptr<void> _d, offset_ptr<void> __odict__, void* _pyclass, void_allocator alloc)
   : tag(_tag), num(_num), str(_str, alloc), d(_d), _odict_(__odict__), pyclass(_pyclass), pycache(0)
 {
 
@@ -24,14 +24,14 @@ sdict_value_t::sdict_value_t(MManager* m, int _tag, int _num, const char* _str, 
 }
 
 bool
-sdict_value_t::has_cache() {
-  //std::cout << "sdict_value_t::has_cache...\n";
+smap_value_t::has_cache() {
+  //std::cout << "smap_value_t::has_cache...\n";
   bool ret = pycache->find(getpid()) != pycache->end();
-  //std::cout << "sdict_value_t::has_cache res: " << ret << "\n";
+  //std::cout << "smap_value_t::has_cache res: " << ret << "\n";
   return ret;
 }
 void*
-sdict_value_t::cache() {
+smap_value_t::cache() {
   if (pycache->size() == 0) {
     std::cerr << "BUG: returning null cache\n";
     throw;
@@ -40,7 +40,7 @@ sdict_value_t::cache() {
 }
 
 void
-sdict_value_t::cache_obj(void* p) {
+smap_value_t::cache_obj(void* p) {
   //std::cout << "caching " << p << "\n";
   (*pycache)[getpid()] = p;
 }
@@ -53,10 +53,10 @@ MManager::MManager(const char* _name, long long _size) :
 
 { }
 
-sdict*
-MManager::create_sdict() {
+smap*
+MManager::create_smap() {
 
-  return segment.construct<sdict>
+  return segment.construct<smap>
     (boost::interprocess::anonymous_instance)(strnum_cmp(), void_alloc);
 }
 
@@ -67,41 +67,41 @@ MManager::create_string(const char* str) {
   return  s;//char_string(str, void_alloc);
 }
 
-sdict_value_t*
+smap_value_t*
 MManager::create_null_value() {
-  return segment.construct<sdict_value_t>
-    (boost::interprocess::anonymous_instance)(this, sdict_value_t::NIL, 0, "", (void*)NULL, (void*)NULL, (void*)NULL, void_alloc);
+  return segment.construct<smap_value_t>
+    (boost::interprocess::anonymous_instance)(this, smap_value_t::NIL, 0, "", (void*)NULL, (void*)NULL, (void*)NULL, void_alloc);
 }
 
-sdict_value_t*
+smap_value_t*
 MManager::create_number_value(long num) {
-  return segment.construct<sdict_value_t>
-    (boost::interprocess::anonymous_instance)(this, sdict_value_t::NUMBER, num, "", (void*)NULL, (void*)NULL, (void*)NULL, void_alloc);
+  return segment.construct<smap_value_t>
+    (boost::interprocess::anonymous_instance)(this, smap_value_t::NUMBER, num, "", (void*)NULL, (void*)NULL, (void*)NULL, void_alloc);
 }
 
-sdict_value_t*
+smap_value_t*
 MManager::create_string_value(const char* str) {
-  return segment.construct<sdict_value_t>
-    (boost::interprocess::anonymous_instance)(this, sdict_value_t::STRING, 0, str, (void*)NULL, (void*)NULL, (void*)NULL, void_alloc);
+  return segment.construct<smap_value_t>
+    (boost::interprocess::anonymous_instance)(this, smap_value_t::STRING, 0, str, (void*)NULL, (void*)NULL, (void*)NULL, void_alloc);
 }
 
-sdict_value_t*
-MManager::create_sdict_value(offset_ptr<sdict> d) {
-  return segment.construct<sdict_value_t>
-    (boost::interprocess::anonymous_instance)(this, sdict_value_t::SDICT, 0, "", d, (void*)NULL, (void*)NULL, void_alloc);
+smap_value_t*
+MManager::create_sdict_value(offset_ptr<smap> d) {
+  return segment.construct<smap_value_t>
+    (boost::interprocess::anonymous_instance)(this, smap_value_t::SDICT, 0, "", d, (void*)NULL, (void*)NULL, void_alloc);
 }
 
-sdict_value_t*
-MManager::create_slist_value(offset_ptr<sdict> d) {
-  return segment.construct<sdict_value_t>
-    (boost::interprocess::anonymous_instance)(this, sdict_value_t::SLIST, 0, "", d, (void*)NULL, (void*)NULL, void_alloc);
+smap_value_t*
+MManager::create_slist_value(offset_ptr<smap> d) {
+  return segment.construct<smap_value_t>
+    (boost::interprocess::anonymous_instance)(this, smap_value_t::SLIST, 0, "", d, (void*)NULL, (void*)NULL, void_alloc);
 }
 
-sdict_value_t*
-MManager::create_obj_value(offset_ptr<sdict> _dict_, void* pyclass) {
-  return segment.construct<sdict_value_t>
+smap_value_t*
+MManager::create_obj_value(offset_ptr<smap> _dict_, void* pyclass) {
+  return segment.construct<smap_value_t>
     (boost::interprocess::anonymous_instance)(this,
-      sdict_value_t::PYOBJ, 0, "", (void*)NULL,
+      smap_value_t::PYOBJ, 0, "", (void*)NULL,
       _dict_, pyclass, void_alloc);
 }
 
@@ -111,74 +111,63 @@ MManager::~MManager() {
 
 
 void
-sdict_set_null_item(offset_ptr<sdict> sd, const char* strkey) {
+smap_set_null_item(offset_ptr<smap> sd, const char* strkey) {
   char_string*  key = manager->create_string(strkey);
-  sdict_value_t* val = manager->create_null_value();
-  // sdict_pair_type p(*key, val);
+  smap_value_t* val = manager->create_null_value();
   (*sd)[*key] = val;
 }
 
 void
-sdict_set_string_item(offset_ptr<sdict> sd, const char* strkey, const char* value) {
+smap_set_string_item(offset_ptr<smap> sd, const char* strkey, const char* value) {
   char_string*  key = manager->create_string(strkey);
-  sdict_value_t* val = manager->create_string_value(value);
-  // sdict_pair_type p(*key, val);
-  (*sd)[*key] = val;
-  // sd->insert(p);
-}
-
-void
-sdict_set_number_item(offset_ptr<sdict> sd, const char* strkey, long num) {
-  char_string*  key = manager->create_string(strkey);
-  sdict_value_t* val = manager->create_number_value(num);
-  // sdict_pair_type p(*key, val);
+  smap_value_t* val = manager->create_string_value(value);
   (*sd)[*key] = val;
 }
 
 void
-sdict_set_sdict_item(offset_ptr<sdict> sd, const char* strkey, offset_ptr<sdict> value) {
+smap_set_number_item(offset_ptr<smap> sd, const char* strkey, long num) {
   char_string*  key = manager->create_string(strkey);
-  sdict_value_t* val = manager->create_sdict_value(value);
-  //std::cout << "*sdict_set_sdict_item " << val << "\n";
-  // sdict_pair_type p(*key, val);
+  smap_value_t* val = manager->create_number_value(num);
   (*sd)[*key] = val;
 }
 
 void
-sdict_set_slist_item(offset_ptr<sdict> sd, const char* strkey, offset_ptr<sdict> value) {
+smap_set_sdict_item(offset_ptr<smap> sd, const char* strkey, offset_ptr<smap> value) {
   char_string*  key = manager->create_string(strkey);
-  sdict_value_t* val = manager->create_slist_value(value);
-  //std::cout << "*sdict_set_sdict_item " << val << "\n";
-  // sdict_pair_type p(*key, val);
+  smap_value_t* val = manager->create_sdict_value(value);
   (*sd)[*key] = val;
 }
 
 void
-sdict_set_obj_item(offset_ptr<sdict> sd, const char* strkey, offset_ptr<sdict> value,
+smap_set_slist_item(offset_ptr<smap> sd, const char* strkey, offset_ptr<smap> value) {
+  char_string*  key = manager->create_string(strkey);
+  smap_value_t* val = manager->create_slist_value(value);
+  (*sd)[*key] = val;
+}
+
+void
+smap_set_obj_item(offset_ptr<smap> sd, const char* strkey, offset_ptr<smap> value,
                    void* pyclass, void* local_pyobj) {
   char_string*  key = manager->create_string(strkey);
-  sdict_value_t* val = manager->create_obj_value(value, pyclass);
+  smap_value_t* val = manager->create_obj_value(value, pyclass);
   val->cache_obj(local_pyobj);
-  //std::cout << "-->sdict_set_obj_item " << strkey << ":: " << val << "\n";
-  //std::cout << "-->sdict_set_obj_item cached:" << local_pyobj << "::" << val->has_cache() << "\n";
-  // sdict_pair_type p(*key, val);
   (*sd)[*key] = val;
 }
 
-offset_ptr<sdict_value_t>
-sdict_get_item(offset_ptr<sdict> sd, const char* strkey) {
+offset_ptr<smap_value_t>
+smap_get_item(offset_ptr<smap> sd, const char* strkey) {
   char_string* k = manager->create_string(strkey);
   return sd->at(*k);
 }
 
 bool
-sdict_has_item(offset_ptr<sdict> sd, const char* key) {
+smap_has_item(offset_ptr<smap> sd, const char* key) {
   char_string* k = manager->create_string(key);
   return sd->find(*k) != sd->end();
 }
 
 void
-sdict_delete_item(offset_ptr<sdict> sd, const char* key) {
+smap_delete_item(offset_ptr<smap> sd, const char* key) {
   char_string* k = manager->create_string(key);
   sd->erase(*k);
 }

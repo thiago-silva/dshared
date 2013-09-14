@@ -19,7 +19,7 @@ typedef map<pid_t, void*, std::less<pid_t>, cache_allocator> cache_t;
 
 class MManager;
 
-class sdict_value_t {
+class smap_value_t {
 public:
   typedef enum {
     NIL,
@@ -42,7 +42,7 @@ public:
 
   offset_ptr<cache_t> pycache;
 
-  sdict_value_t(MManager*, int _tag, int _num, const char* _str, offset_ptr<void> _d,
+  smap_value_t(MManager*, int _tag, int _num, const char* _str, offset_ptr<void> _d,
                 offset_ptr<void> __odict__, void* pyclass,
                 void_allocator alloc);
 
@@ -58,24 +58,24 @@ struct strnum_cmp : public std::binary_function<char_string, char_string, bool> 
 };
 
 
-typedef offset_ptr<sdict_value_t> pair_value_t;
-typedef std::pair<const char_string, pair_value_t> sdict_pair_type;
-typedef allocator<sdict_pair_type, segment_manager_t>  sdict_pair_type_allocator;
-typedef map<char_string, pair_value_t, strnum_cmp, sdict_pair_type_allocator>  sdict;
+typedef offset_ptr<smap_value_t> pair_value_t;
+typedef std::pair<const char_string, pair_value_t> smap_pair_type;
+typedef allocator<smap_pair_type, segment_manager_t>  smap_pair_type_allocator;
+typedef map<char_string, pair_value_t, strnum_cmp, smap_pair_type_allocator>  smap;
 
 class MManager {
 public:
   MManager(const char* _name, long long _size);
   ~MManager();
 
-  sdict*          create_sdict();
+  smap*          create_smap();
   char_string*    create_string(const char* str);
-  sdict_value_t*  create_null_value();
-  sdict_value_t*  create_number_value(long num);
-  sdict_value_t*  create_string_value(const char* str);
-  sdict_value_t*  create_sdict_value(offset_ptr<sdict> d);
-  sdict_value_t*  create_slist_value(offset_ptr<sdict> d);
-  sdict_value_t*  create_obj_value(offset_ptr<sdict> _dict_, void* pytype);
+  smap_value_t*  create_null_value();
+  smap_value_t*  create_number_value(long num);
+  smap_value_t*  create_string_value(const char* str);
+  smap_value_t*  create_sdict_value(offset_ptr<smap> d);
+  smap_value_t*  create_slist_value(offset_ptr<smap> d);
+  smap_value_t*  create_obj_value(offset_ptr<smap> _dict_, void* pytype);
 
   const char* name;
   unsigned long size;
@@ -83,16 +83,16 @@ public:
   void_allocator void_alloc;
 };
 
-void sdict_set_null_item(offset_ptr<sdict> sd, const char* key);
-void sdict_set_string_item(offset_ptr<sdict> sd, const char* key, const char* value);
-void sdict_set_number_item(offset_ptr<sdict> sd, const char* key, long num);
-void sdict_set_sdict_item(offset_ptr<sdict> sd, const char* key, offset_ptr<sdict> value);
-void sdict_set_slist_item(offset_ptr<sdict> sd, const char* key, offset_ptr<sdict> value);
-void sdict_set_obj_item(offset_ptr<sdict> sd, const char* key, offset_ptr<sdict> value,
+void smap_set_null_item(offset_ptr<smap> sd, const char* key);
+void smap_set_string_item(offset_ptr<smap> sd, const char* key, const char* value);
+void smap_set_number_item(offset_ptr<smap> sd, const char* key, long num);
+void smap_set_sdict_item(offset_ptr<smap> sd, const char* key, offset_ptr<smap> value);
+void smap_set_slist_item(offset_ptr<smap> sd, const char* key, offset_ptr<smap> value);
+void smap_set_obj_item(offset_ptr<smap> sd, const char* key, offset_ptr<smap> value,
                         void* pyclass, void* local_obj_value);
 
-offset_ptr<sdict_value_t> sdict_get_item(offset_ptr<sdict> sd, const char* key);
-bool sdict_has_item(offset_ptr<sdict> sd, const char* key);
-void sdict_delete_item(offset_ptr<sdict> sd, const char* key);
+offset_ptr<smap_value_t> smap_get_item(offset_ptr<smap> sd, const char* key);
+bool smap_has_item(offset_ptr<smap> sd, const char* key);
+void smap_delete_item(offset_ptr<smap> sd, const char* key);
 
 #endif

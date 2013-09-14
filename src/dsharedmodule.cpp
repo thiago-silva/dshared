@@ -34,27 +34,22 @@ py_unicode_to_string(PyObject* unic) {
   return PyString_AsString(ustr);
 }
 
-typedef std::map<PyObject*, offset_ptr<sdict> > visited_map_t;
+typedef std::map<PyObject*, offset_ptr<smap> > visited_map_t;
 
 int
-rec_store_item(offset_ptr<sdict> sd, PyObject* key,
+rec_store_item(offset_ptr<smap> sd, PyObject* key,
                PyObject* val, visited_map_t visited = visited_map_t());
 
 int
-rec_store_item(offset_ptr<sdict> sd, Py_ssize_t key,
+rec_store_item(offset_ptr<smap> sd, Py_ssize_t key,
                PyObject* val, visited_map_t visited = visited_map_t());
 
 int
-do_rec_store_item(offset_ptr<sdict> sd, const char* key,
+do_rec_store_item(offset_ptr<smap> sd, const char* key,
                   PyObject* val, visited_map_t visited = visited_map_t());
 
 static PyObject*
-PyObject_from_variant(offset_ptr<sdict_value_t> val);
-
-static int
-populate_sdict_with_list(offset_ptr<sdict> entry, PyObject* val, visited_map_t visited = visited_map_t());
-
-
+PyObject_from_variant(offset_ptr<smap_value_t> val);
 
 
 
@@ -62,13 +57,13 @@ populate_sdict_with_list(offset_ptr<sdict> entry, PyObject* val, visited_map_t v
 
 typedef struct {
   PyObject_HEAD //PyListObject list;
-  offset_ptr<sdict> sd;
+  offset_ptr<smap> sm;
 } SList;
 
 typedef struct {
   PyObject_HEAD
   SList* collection;
-  sdict::iterator current;
+  smap::iterator current;
 } SList_Iter;
 
 
@@ -104,13 +99,19 @@ static int
 SList_init(SList *self, PyObject *args, PyObject *kwds);
 
 static PyObject*
-SList_create_list(offset_ptr<sdict_value_t>);
+SList_create_list(offset_ptr<smap_value_t>);
 
 static PyObject*
 SList_Iter_iternext(PyObject *_self);
 
 static PyObject*
 SList_add(PyObject* _self, PyObject* args);
+
+static int
+populate_smap_with_list(offset_ptr<smap> entry, PyObject* val, visited_map_t visited = visited_map_t());
+
+static PyObject*
+smap_entry_as_SList(offset_ptr<smap_value_t> val);
 
 static PySequenceMethods
 slist_seq = {
@@ -267,7 +268,7 @@ SList_print(PyObject *self, FILE *file, int flags) {
 
 int
 SList_len(PyObject* self) {
-  return ((SList*)self)->sd->size();
+  return ((SList*)self)->sm->size();
 }
 
 PyObject*
@@ -275,17 +276,17 @@ _SList_add(SList* lhs, PyListObject* _rhs) {
   PyObject* rhs = (PyObject*) _rhs;
   //std::cout << "_SList_add[1]\n";
 
-  Py_ssize_t size = lhs->sd->size();
+  Py_ssize_t size = lhs->sm->size();
 
   Py_ssize_t rsize = PyList_Size(rhs);
   size += rsize;
 
   PyObject* lst = PyList_New(size);
-  sdict::size_type i;
-  for (i = 0; i < lhs->sd->size(); i++) {
+  smap::size_type i;
+  for (i = 0; i < lhs->sm->size(); i++) {
     std::stringstream s;
     s << i;
-    offset_ptr<sdict_value_t> val = sdict_get_item(lhs->sd, s.str().c_str());
+    offset_ptr<smap_value_t> val = smap_get_item(lhs->sm, s.str().c_str());
     PyObject* o = PyObject_from_variant(val);
     PyList_SetItem(lst, i, o);
   }
@@ -304,7 +305,7 @@ _SList_add(PyListObject* _lhs, SList* rhs) {
   //std::cout << "_SList_add[2]\n";
 
   Py_ssize_t lsize = PyList_Size(lhs);
-  Py_ssize_t rsize = rhs->sd->size();
+  Py_ssize_t rsize = rhs->sm->size();
   Py_ssize_t size = lsize + rsize;
 
   PyObject* lst = PyList_New(size);
@@ -317,7 +318,7 @@ _SList_add(PyListObject* _lhs, SList* rhs) {
   for (Py_ssize_t j = 0; j < rsize; i++, j++) {
     std::stringstream s;
     s << j;
-    offset_ptr<sdict_value_t> val = sdict_get_item(rhs->sd, s.str().c_str());
+    offset_ptr<smap_value_t> val = smap_get_item(rhs->sm, s.str().c_str());
     PyObject* o = PyObject_from_variant(val);
     PyList_SetItem(lst, i, o);
   }
@@ -369,10 +370,10 @@ SList_append(PyObject* _self, PyObject* args) {
   }
 
   SList* self = (SList*) _self;
-  sdict::size_type size = self->sd->size();
+  smap::size_type size = self->sm->size();
   std::stringstream s;
   s << size;
-  if (do_rec_store_item(self->sd, s.str().c_str(), arg) != 0) {
+  if (do_rec_store_item(self->sm, s.str().c_str(), arg) != 0) {
     return NULL;
   }
   Py_INCREF(Py_None);
@@ -382,7 +383,7 @@ SList_append(PyObject* _self, PyObject* args) {
 int
 SList_set_item(PyObject* _self, Py_ssize_t key, PyObject* val) {
   SList* self = (SList*) _self;
-  return rec_store_item(self->sd, key, val);
+  return rec_store_item(self->sm, key, val);
 }
 
 
@@ -395,7 +396,7 @@ SList_get_item(PyObject* _self, Py_ssize_t key) {
   const char* strkey = s.str().c_str();
   try {
     //std::cout << "slist::get_item " << strkey << "\n";
-    offset_ptr<sdict_value_t> val = sdict_get_item(self->sd, strkey);
+    offset_ptr<smap_value_t> val = smap_get_item(self->sm, strkey);
     //std::cout << "  slist::get_item variant " << val <<"|" << val.get() << "\n";
     PyObject* obj = PyObject_from_variant(val);
     if (obj) {
@@ -414,7 +415,7 @@ SList_get_item(PyObject* _self, Py_ssize_t key) {
 
 int
 SList_contains(PyObject *self, PyObject *value) {
-  offset_ptr<sdict> sd = ((SList*)self)->sd;
+  offset_ptr<smap> sd = ((SList*)self)->sm;
 
   if (!PyLong_Check(value) && !PyInt_Check(value)) {
     PyErr_SetString(PyExc_TypeError,"unknown type for slist index");
@@ -425,7 +426,7 @@ SList_contains(PyObject *self, PyObject *value) {
   s << lkey;
   const char* strkey = s.str().c_str();
 
-  return sdict_has_item(sd, strkey);
+  return smap_has_item(sd, strkey);
 }
 
 PyObject*
@@ -441,8 +442,8 @@ SList_iter(PyObject* self) {
 
   //std::cout << "setting col\n";
   iterator->collection = (SList*) self;
-  iterator->current = iterator->collection->sd->begin();
-  //std::cout << "returning iter with items: " << iterator->collection->sd->size() << "\n";
+  iterator->current = iterator->collection->sm->begin();
+  //std::cout << "returning iter with items: " << iterator->collection->sm->size() << "\n";
   Py_INCREF(iterator);
   return (PyObject*) iterator;
 }
@@ -474,12 +475,12 @@ SList_init(SList *self, PyObject *args, PyObject *kwds) {
   }
 
   if (PyList_CheckExact(arg)) {
-    self->sd = manager->create_sdict();
-    if (populate_sdict_with_list(self->sd, arg) != 0) {
+    self->sm = manager->create_smap();
+    if (populate_smap_with_list(self->sm, arg) != 0) {
       return -1;
     }
   } else if (PyObject_TypeCheck(arg, &SListType)) {
-    self->sd = ((SList*)arg)->sd;
+    self->sm = ((SList*)arg)->sm;
   } else {
     PyErr_SetString(PyExc_TypeError,"expected a list or dshared.list");
     return -1;
@@ -497,12 +498,12 @@ SList_Iter_iternext(PyObject *_self) {
   //std::cout << "SDict_Iter_iternext\n";
   SList_Iter* self = (SList_Iter*)_self;
 
-  if (self->current == self->collection->sd->end()) {
+  if (self->current == self->collection->sm->end()) {
     PyErr_SetNone(PyExc_StopIteration);
     //std::cout << "  SDict_Iter_iternext: StopIteration\n";
     return NULL;
   } else {
-    offset_ptr<sdict_value_t> val = self->current->second;
+    offset_ptr<smap_value_t> val = self->current->second;
     //std::cout << "  SDict_Iter_iternext: iter variant for " << self->current->first << ": " << val << "|" << val.get() << "\n";
     //std::cout << "  SDict_Iter_iternext: sneaking .d: " << val->d << "|" << val->d.get() << "tag: " << val->tag <<"\n";
     //std::cout << "  SDict_Iter_iternext: sneaking ._odict_: " << val->_odict_ << "|" << val->_odict_.get() <<"\n";
@@ -520,7 +521,7 @@ SList_Iter_iternext(PyObject *_self) {
 }
 
 int
-populate_sdict_with_list(offset_ptr<sdict> entry, PyObject* val, visited_map_t visited) {
+populate_smap_with_list(offset_ptr<smap> entry, PyObject* val, visited_map_t visited) {
   PyObject *key, *value;
   int ret;
   visited[val] = entry;
@@ -540,15 +541,15 @@ populate_sdict_with_list(offset_ptr<sdict> entry, PyObject* val, visited_map_t v
 
 
 PyObject*
-SList_for_sdict(offset_ptr<sdict_value_t> val) {
-  //std::cout << "Slist_for_sdict\n";
-  //std::cout << "   Slist_for_sdict: has in cache?" << val->has_cache() << "\n";
+smap_entry_as_SList(offset_ptr<smap_value_t> val) {
+  //std::cout << "Slist_for_smap\n";
+  //std::cout << "   Slist_for_smap: has in cache?" << val->has_cache() << "\n";
   PyObject* obj;
   if (val->has_cache()) {
     obj = (PyObject*)val->cache();
-    //std::cout << "   Slist_for_sdict: cached obj: " << obj << "\n";
+    //std::cout << "   Slist_for_smap: cached obj: " << obj << "\n";
   } else {
-    //std::cout << "  SList_for_sdict: creating pylist...\n";
+    //std::cout << "  SList_for_smap: creating pylist...\n";
     obj = SList_create_list(val);
   }
   Py_INCREF(obj);
@@ -556,7 +557,7 @@ SList_for_sdict(offset_ptr<sdict_value_t> val) {
 }
 
 PyObject*
-SList_create_list(offset_ptr<sdict_value_t> variant) {
+SList_create_list(offset_ptr<smap_value_t> variant) {
   //std::cout << "SList_create_dict:: for variant: " << variant << "|" << variant.get() << "\n";
   SList* obj = (SList*) PyObject_CallObject((PyObject *) &SListType, PyTuple_New(0));
 
@@ -565,8 +566,8 @@ SList_create_list(offset_ptr<sdict_value_t> variant) {
   //std::cout << "SUCC. SDict_create_dict:: setting pyobj-sd: " << variant->d << "|" << variant->d.get() << "\n";
 
   //std::cout << "CAST[before]  >>>" << variant->d << "|" << variant->d.get() << "\n";
-  obj->sd = offset_ptr<sdict>(static_cast<sdict*>(variant->d.get()));
-  //std::cout << "CAST :: >>>>>> : " << obj->sd <<"|"<< obj->sd.get() << "\n";
+  obj->sm = offset_ptr<smap>(static_cast<smap*>(variant->d.get()));
+  //std::cout << "CAST :: >>>>>> : " << obj->sm <<"|"<< obj->sm.get() << "\n";
   return (PyObject*) obj;
 }
 
@@ -582,23 +583,23 @@ SList_create_list(offset_ptr<sdict_value_t> variant) {
 
 typedef struct {
   PyDictObject dict;
-  offset_ptr<sdict> sd;
+  offset_ptr<smap> sm;
 } SDict;
 
 typedef struct {
   PyObject_HEAD
   SDict* collection;
-  sdict::iterator current;
+  smap::iterator current;
 } SDict_Iter;
 
 static PyObject*
-SDict_for_sdict(offset_ptr<sdict_value_t> val);
+smap_entry_as_SDICT(offset_ptr<smap_value_t> val);
 
 static PyObject*
-SDict_for_pyobj(offset_ptr<sdict_value_t> val);
+smap_entry_as_PYOBJ(offset_ptr<smap_value_t> val);
 
 static PyObject*
-PyObject_from_variant(offset_ptr<sdict_value_t> val);
+PyObject_from_variant(offset_ptr<smap_value_t> val);
 
 static int
 SDict_contains(PyObject *self, PyObject *value);
@@ -610,7 +611,7 @@ static PyObject*
 SDict_get_item(PyObject* _self, PyObject* key);
 
 static int
-populate_sdict_with_dict(offset_ptr<sdict> entry, PyObject* val, visited_map_t visited = visited_map_t());
+populate_smap_with_dict(offset_ptr<smap> entry, PyObject* val, visited_map_t visited = visited_map_t());
 
 static PyObject*
 SDict_Iter_iternext(PyObject *_self);
@@ -649,14 +650,14 @@ static int
 SDict_init(SDict *self, PyObject *args, PyObject *kwds);
 
 static PyObject*
-SDict_create_dict(offset_ptr<sdict_value_t> variant);
+SDict_create_dict(offset_ptr<smap_value_t> variant);
 
 static PyObject*
-SDict_create_obj(offset_ptr<sdict_value_t> variant);
+SDict_create_obj(offset_ptr<smap_value_t> variant);
 
 
 static PyMappingMethods
-sdict_mapping = {
+SDict_mapping = {
     SDict_len,
     SDict_get_item,
     SDict_set_item
@@ -678,7 +679,7 @@ SDict_methods[] = {
 };
 
 static PySequenceMethods
-sdict_seq = {
+SDict_seq = {
   0,/* sq_length */
   0,/* sq_concat */
   0,/* sq_repeat */
@@ -749,8 +750,8 @@ SDictType = {
     0,                       /* tp_compare */
     0,                       /* tp_repr */
     0,                       /* tp_as_number */
-    &sdict_seq,              /* tp_as_sequence */
-    &sdict_mapping,          /* tp_as_mapping */
+    &SDict_seq,              /* tp_as_sequence */
+    &SDict_mapping,          /* tp_as_mapping */
     0,                       /* tp_hash */
     0,                       /* tp_call */
     SDict_str,               /* tp_str */
@@ -782,15 +783,11 @@ SDictType = {
 
 
 PyObject*
-SDict_for_sdict(offset_ptr<sdict_value_t> val) {
-  //std::cout << "SDict_for_sdict\n";
-  //std::cout << "   SDict_for_sdict: has in cache?" << val->has_cache() << "\n";
+smap_entry_as_SDICT(offset_ptr<smap_value_t> val) {
   PyObject* obj;
   if (val->has_cache()) {
     obj = (PyObject*)val->cache();
-    //std::cout << "   SDict_for_sdict: cached obj: " << obj << "\n";
   } else {
-    //std::cout << "  SDict_for_sdict: creating pydict...\n";
     obj = SDict_create_dict(val);
   }
   Py_INCREF(obj);
@@ -798,7 +795,7 @@ SDict_for_sdict(offset_ptr<sdict_value_t> val) {
 }
 
 PyObject*
-SDict_for_pyobj(offset_ptr<sdict_value_t> val) {
+smap_entry_as_PYOBJ(offset_ptr<smap_value_t> val) {
   //std::cout << "SDict_for_pyobj has cache? " << val->has_cache() << "\n";
   PyObject* obj = NULL;
   if (val->has_cache()) {
@@ -813,20 +810,20 @@ SDict_for_pyobj(offset_ptr<sdict_value_t> val) {
 }
 
 PyObject*
-PyObject_from_variant(offset_ptr<sdict_value_t> val) {
+PyObject_from_variant(offset_ptr<smap_value_t> val) {
   switch(val->tag) {
-    case sdict_value_t::NIL:
+    case smap_value_t::NIL:
       return Py_None;
-    case sdict_value_t::STRING:
+    case smap_value_t::STRING:
       return PyString_FromString(val->str.c_str());
-    case sdict_value_t::NUMBER:
+    case smap_value_t::NUMBER:
       return PyInt_FromLong(val->num);
-    case sdict_value_t::SDICT:
-      return SDict_for_sdict(val);
-    case sdict_value_t::SLIST:
-      return SList_for_sdict(val);
-    case sdict_value_t::PYOBJ:
-      return SDict_for_pyobj(val);
+    case smap_value_t::SDICT:
+      return smap_entry_as_SDICT(val);
+    case smap_value_t::SLIST:
+      return smap_entry_as_SList(val);
+    case smap_value_t::PYOBJ:
+      return smap_entry_as_PYOBJ(val);
   }
   //std::cout << "WTF tag: " << val->tag << "\n";
   PyErr_SetString(PyExc_TypeError,"unknown type tag ");
@@ -835,16 +832,16 @@ PyObject_from_variant(offset_ptr<sdict_value_t> val) {
 
 int
 SDict_contains(PyObject *self, PyObject *value) {
-  offset_ptr<sdict> sd = ((SDict*)self)->sd;
+  offset_ptr<smap> sd = ((SDict*)self)->sm;
 
   if (PyString_Check(value)) {
     const char* strkey = PyString_AsString(value);
-    return sdict_has_item(sd, strkey);
+    return smap_has_item(sd, strkey);
   } else if (PyUnicode_Check(value)) {
     const char* strkey = py_unicode_to_string(value);
-    return sdict_has_item(sd, strkey);
+    return smap_has_item(sd, strkey);
   } else {
-    PyErr_SetString(PyExc_TypeError,"unknown type for sdict index");
+    PyErr_SetString(PyExc_TypeError,"unknown type for smap index");
     return -1;
   }
 }
@@ -852,7 +849,7 @@ SDict_contains(PyObject *self, PyObject *value) {
 int
 SDict_set_item(PyObject* _self, PyObject* key, PyObject* val) {
   SDict* self = (SDict*) _self;
-  return rec_store_item(self->sd, key, val);
+  return rec_store_item(self->sm, key, val);
 }
 
 PyObject*
@@ -865,7 +862,7 @@ SDict_get_item(PyObject* _self, PyObject* key) {
   } else if (PyUnicode_Check(key)) {
     strkey = py_unicode_to_string(key);
   } else {
-    PyErr_SetString(PyExc_TypeError,"only strings can index sdict");
+    PyErr_SetString(PyExc_TypeError,"only strings can index smap");
     return NULL;
   }
 
@@ -873,7 +870,7 @@ SDict_get_item(PyObject* _self, PyObject* key) {
 
   try {
     //std::cout << "get_item " << strkey << "\n";
-    offset_ptr<sdict_value_t> val = sdict_get_item(self->sd, strkey);
+    offset_ptr<smap_value_t> val = smap_get_item(self->sm, strkey);
     //std::cout << "  get_item variant " << val <<"|" << val.get() << "\n";
     PyObject* obj = PyObject_from_variant(val);
     if (obj) {
@@ -890,7 +887,7 @@ SDict_get_item(PyObject* _self, PyObject* key) {
 }
 
 int
-populate_sdict_with_dict(offset_ptr<sdict> entry, PyObject* val, visited_map_t visited) {
+populate_smap_with_dict(offset_ptr<smap> entry, PyObject* val, visited_map_t visited) {
   PyObject *key, *value;
   Py_ssize_t pos = 0;
   int ret;
@@ -908,13 +905,13 @@ SDict_Iter_iternext(PyObject *_self) {
   //std::cout << "SDict_Iter_iternext\n";
   SDict_Iter* self = (SDict_Iter*)_self;
 
-  if (self->current == self->collection->sd->end()) {
+  if (self->current == self->collection->sm->end()) {
     PyErr_SetNone(PyExc_StopIteration);
     //std::cout << "  SDict_Iter_iternext: StopIteration\n";
     return NULL;
   } else {
     const char* strkey = self->current->first.c_str();
-    offset_ptr<sdict_value_t> val = self->current->second;
+    offset_ptr<smap_value_t> val = self->current->second;
     //std::cout << "  SDict_Iter_iternext: iter variant for " << self->current->first << ": " << val << "|" << val.get() << "\n";
     //std::cout << "  SDict_Iter_iternext: sneaking .d: " << val->d << "|" << val->d.get() << "tag: " << val->tag <<"\n";
     //std::cout << "  SDict_Iter_iternext: sneaking ._odict_: " << val->_odict_ << "|" << val->_odict_.get() <<"\n";
@@ -955,7 +952,7 @@ SDict_iteritems(PyObject* self, PyObject* args) {
   }
 
   iterator->collection = (SDict*) self;
-  iterator->current = iterator->collection->sd->begin();
+  iterator->current = iterator->collection->sm->begin();
   Py_INCREF(iterator);
   return (PyObject*) iterator;
 }
@@ -969,12 +966,12 @@ SDict_items(PyObject* _self, PyObject* args) {
   PyObject *py_key;
   PyObject *py_val;
 
-  if ((lst = PyList_New(self->sd->size())) == NULL) {
+  if ((lst = PyList_New(self->sm->size())) == NULL) {
     return NULL;
   }
   int i = 0;
-  for (sdict::iterator it = self->sd->begin();
-       it != self->sd->end(); i++, it++) {
+  for (smap::iterator it = self->sm->begin();
+       it != self->sm->end(); i++, it++) {
     if ((tpl = PyTuple_New(2)) == NULL) {
       return NULL;
     }
@@ -985,7 +982,7 @@ SDict_items(PyObject* _self, PyObject* args) {
       return NULL;
     }
 
-    offset_ptr<sdict_value_t> sdval = sdict_get_item(self->sd, it->first.c_str());
+    offset_ptr<smap_value_t> sdval = smap_get_item(self->sm, it->first.c_str());
     if ((py_val = PyObject_from_variant(sdval)) == NULL) {
       return NULL;
     }
@@ -1007,12 +1004,12 @@ SDict_keys(PyObject* _self, PyObject* args) {
   PyObject *lst;
   PyObject *py_key;
 
-  if ((lst = PyList_New(self->sd->size())) == NULL) {
+  if ((lst = PyList_New(self->sm->size())) == NULL) {
     return NULL;
   }
   int i = 0;
-  for (sdict::iterator it = self->sd->begin();
-       it != self->sd->end(); i++, it++) {
+  for (smap::iterator it = self->sm->begin();
+       it != self->sm->end(); i++, it++) {
     if ((py_key = PyString_FromString(it->first.c_str())) == NULL) {
       return NULL;
     }
@@ -1032,13 +1029,13 @@ SDict_values(PyObject* _self, PyObject* args) {
   PyObject *lst;
   PyObject *py_val;
 
-  if ((lst = PyList_New(self->sd->size())) == NULL) {
+  if ((lst = PyList_New(self->sm->size())) == NULL) {
     return NULL;
   }
   int i = 0;
-  for (sdict::iterator it = self->sd->begin();
-       it != self->sd->end(); i++, it++) {
-    offset_ptr<sdict_value_t> sdval = sdict_get_item(self->sd, it->first.c_str());
+  for (smap::iterator it = self->sm->begin();
+       it != self->sm->end(); i++, it++) {
+    offset_ptr<smap_value_t> sdval = smap_get_item(self->sm, it->first.c_str());
     if ((py_val = PyObject_from_variant(sdval)) == NULL) {
       return NULL;
     }
@@ -1052,7 +1049,7 @@ SDict_values(PyObject* _self, PyObject* args) {
 
 PyObject*
 SDict_iter(PyObject* self) {
-  //std::cout << "sdict::__iter__\n";
+  //std::cout << "smap::__iter__\n";
   SDict_Iter* iterator = (SDict_Iter*)  PyObject_New(SDict_Iter, &SDict_IterType);
   if (!iterator) return NULL;
   //std::cout << "initing iter\n";
@@ -1063,8 +1060,8 @@ SDict_iter(PyObject* self) {
 
   //std::cout << "setting col\n";
   iterator->collection = (SDict*) self;
-  iterator->current = iterator->collection->sd->begin();
-  //std::cout << "returning iter with items: " << iterator->collection->sd->size() << "\n";
+  iterator->current = iterator->collection->sm->begin();
+  //std::cout << "returning iter with items: " << iterator->collection->sm->size() << "\n";
   Py_INCREF(iterator);
   return (PyObject*) iterator;
 }
@@ -1079,10 +1076,10 @@ SDict_append(PyObject* _self, PyObject* args) {
     return NULL;
   }
 
-  int size = self->sd->size();
+  int size = self->sm->size();
   std::stringstream s;
   s << size;
-  if (rec_store_item(self->sd, PyString_FromString(s.str().c_str()), arg) != 0) {
+  if (rec_store_item(self->sm, PyString_FromString(s.str().c_str()), arg) != 0) {
     return NULL;
   }
   Py_INCREF(Py_None);
@@ -1107,7 +1104,7 @@ SDict_print(PyObject *self, FILE *file, int flags) {
 
 Py_ssize_t
 SDict_len(PyObject* self) {
-  return ((SDict*)self)->sd->size();
+  return ((SDict*)self)->sm->size();
 }
 
 
@@ -1131,12 +1128,12 @@ SDict_init(SDict *self, PyObject *args, PyObject *kwds) {
   }
 
   if (PyDict_CheckExact(arg)) {
-    self->sd = manager->create_sdict();
-    if (populate_sdict_with_dict(self->sd, arg) != 0) {
+    self->sm = manager->create_smap();
+    if (populate_smap_with_dict(self->sm, arg) != 0) {
       return -1;
     }
   } else if (PyObject_TypeCheck(arg, &SDictType)) {
-    self->sd = ((SDict*)arg)->sd;
+    self->sm = ((SDict*)arg)->sm;
   } else {
     PyErr_SetString(PyExc_TypeError,"expected a dict or dshared.dict");
     return -1;
@@ -1149,23 +1146,23 @@ SDict_init(SDict *self, PyObject *args, PyObject *kwds) {
 }
 
 PyObject*
-SDict_create_dict(offset_ptr<sdict_value_t> variant) {
+SDict_create_dict(offset_ptr<smap_value_t> variant) {
   //std::cout << "SDict_create_dict:: for variant: " << variant << "|" << variant.get() << "\n";
   SDict* obj = (SDict*) PyObject_CallObject((PyObject *) &SDictType, PyTuple_New(0));
 
   //std::cout << "SDict_create_dict:: created dict pyobject : " << obj << ". Caching (and crashing?)\n";
   variant->cache_obj(obj);
   //std::cout << "SUCC. SDict_create_dict:: setting pyobj-sd: " << variant->d << "|" << variant->d.get() << "\n";
-  //obj->sd = offset_ptr<sdict>((sdict*)variant->d.get());
+  //obj->sm = offset_ptr<smap>((smap*)variant->d.get());
 
   //std::cout << "CAST[before]  >>>" << variant->d << "|" << variant->d.get() << "\n";
-  obj->sd = offset_ptr<sdict>(static_cast<sdict*>(variant->d.get()));
-  //std::cout << "CAST :: >>>>>> : " << obj->sd <<"|"<< obj->sd.get() << "\n";
+  obj->sm = offset_ptr<smap>(static_cast<smap*>(variant->d.get()));
+  //std::cout << "CAST :: >>>>>> : " << obj->sm <<"|"<< obj->sm.get() << "\n";
   return (PyObject*) obj;
 }
 
 PyObject*
-SDict_create_obj(offset_ptr<sdict_value_t> variant) {
+SDict_create_obj(offset_ptr<smap_value_t> variant) {
   //std::cout << "SDict_create_obj:: creating py _dict_\n";
   SDict* _dict_;
   if ((_dict_ = (SDict*) PyObject_CallObject((PyObject *) &SDictType, PyTuple_New(0))) == NULL) {
@@ -1175,9 +1172,9 @@ SDict_create_obj(offset_ptr<sdict_value_t> variant) {
 
   //std::cout << "  setting _dict_'s sd to stored __dict__: " << variant->_odict_ <<"|"<<variant->_odict_.get() << "\n";
   //std::cout << ".CAST[before]  >>>" << variant->_odict_ << "|" << variant->_odict_.get() << "\n";
-  _dict_->sd = offset_ptr<sdict>(static_cast<sdict*>(variant->_odict_.get()));
-  _dict_->sd = offset_ptr<sdict>((sdict*)variant->_odict_.get());
-  //std::cout << ".CAST  >>>" << _dict_->sd << "|" << _dict_->sd.get() << "\n";
+  _dict_->sm = offset_ptr<smap>(static_cast<smap*>(variant->_odict_.get()));
+  _dict_->sm = offset_ptr<smap>((smap*)variant->_odict_.get());
+  //std::cout << ".CAST  >>>" << _dict_->sm << "|" << _dict_->sm.get() << "\n";
 
   PyObject* klass = (PyObject*)variant->pyclass;
 
@@ -1224,14 +1221,14 @@ SDict_create_obj(offset_ptr<sdict_value_t> variant) {
 }
 
 int
-rec_store_item(offset_ptr<sdict> sd, PyObject* key, PyObject* val, visited_map_t  visited) {
+rec_store_item(offset_ptr<smap> sd, PyObject* key, PyObject* val, visited_map_t  visited) {
   const char* strkey;
   if (PyString_Check(key)) {
     strkey = PyString_AsString(key);
   } else if (PyUnicode_Check(key)) {
     strkey = py_unicode_to_string(key);
   } else {
-    PyErr_SetString(PyExc_TypeError,"only strings can index sdict");
+    PyErr_SetString(PyExc_TypeError,"only strings can index smap");
     return 1;
   }
   return do_rec_store_item(sd, strkey, val, visited);
@@ -1245,7 +1242,7 @@ rec_store_item(offset_ptr<sdict> sd, PyObject* key, PyObject* val, visited_map_t
 
 
 int
-rec_store_item(offset_ptr<sdict> sd, Py_ssize_t key, PyObject* val, visited_map_t  visited) {
+rec_store_item(offset_ptr<smap> sd, Py_ssize_t key, PyObject* val, visited_map_t  visited) {
   std::stringstream s;
   s << key;
 
@@ -1253,77 +1250,77 @@ rec_store_item(offset_ptr<sdict> sd, Py_ssize_t key, PyObject* val, visited_map_
 }
 
 int
-do_rec_store_item(offset_ptr<sdict> sd, const char* strkey, PyObject* val, visited_map_t  visited) {
+do_rec_store_item(offset_ptr<smap> sd, const char* strkey, PyObject* val, visited_map_t  visited) {
   //std::cout << "rec_store_item " << strkey << "\n";
   if (val == 0) { // delete item
-    if (!sdict_has_item(sd, strkey)) {
+    if (!smap_has_item(sd, strkey)) {
       PyErr_SetString(PyExc_TypeError,strkey);
       return 1;
     } else {
-      sdict_delete_item(sd, strkey);
+      smap_delete_item(sd, strkey);
       return 0;
     }
   } else if (val == Py_None) {
-    sdict_set_null_item(sd, strkey);
+    smap_set_null_item(sd, strkey);
     return 0;
   } else if (PyString_Check(val)) {
-    sdict_set_string_item(sd, strkey, PyString_AsString(val));
+    smap_set_string_item(sd, strkey, PyString_AsString(val));
     return 0;
   } else if (PyUnicode_Check(val)) {
-    sdict_set_string_item(sd, strkey, py_unicode_to_string(val));
+    smap_set_string_item(sd, strkey, py_unicode_to_string(val));
     return 0;
   } else if (PyInt_Check(val) || PyLong_Check(val)) {
     long r = PyInt_AsLong(val);
     if (PyErr_Occurred()) {
       return 1;
     }
-    sdict_set_number_item(sd, strkey, r);
+    smap_set_number_item(sd, strkey, r);
     return 0;
   } else if (PyList_CheckExact(val)) {
     //std::cout << "rec_store_item:: exact py list() " << strkey << "\n";
     visited_map_t::iterator it = visited.find(val);
     if (it != visited.end()) { //recursive structure
-      sdict_set_sdict_item(sd, strkey, it->second);
+      smap_set_sdict_item(sd, strkey, it->second);
       return 0;
     } else {
-      offset_ptr<sdict> entry = manager->create_sdict();
-      //std::cout << "rec_store_item:: created sdict: " << entry << "|" << entry.get() << "\n";
+      offset_ptr<smap> entry = manager->create_smap();
+      //std::cout << "rec_store_item:: created SDICT: " << entry << "|" << entry.get() << "\n";
 
       int ret;
-      if ((ret = populate_sdict_with_list(entry, val, visited)) != 0) {
+      if ((ret = populate_smap_with_list(entry, val, visited)) != 0) {
         return ret;
       }
       //std::cout << "rec_store_item:: slist: populated it, storing...\n";
-      sdict_set_slist_item(sd, strkey, entry);
+      smap_set_slist_item(sd, strkey, entry);
       return 0;
     }
   } else if (PyDict_CheckExact(val)) {
     //std::cout << "rec_store_item::exact py dict() " << strkey << "\n";
     visited_map_t::iterator it = visited.find(val);
     if (it != visited.end()) { //recursive structure
-      sdict_set_sdict_item(sd, strkey, it->second);
+      smap_set_sdict_item(sd, strkey, it->second);
       return 0;
     } else {
-      offset_ptr<sdict> entry = manager->create_sdict();
-      //std::cout << "rec_store_item:: created sdict: " << entry << "|" << entry.get() << "\n";
+      offset_ptr<smap> entry = manager->create_smap();
+      //std::cout << "rec_store_item:: created smap: " << entry << "|" << entry.get() << "\n";
 
       int ret;
-      if ((ret = populate_sdict_with_dict(entry, val, visited)) != 0) {
+      if ((ret = populate_smap_with_dict(entry, val, visited)) != 0) {
         return ret;
       }
       //std::cout << "rec_store_item:: populated it, storing...\n";
-      sdict_set_sdict_item(sd, strkey, entry);
+      smap_set_sdict_item(sd, strkey, entry);
       return 0;
     }
   } else if (PyObject_TypeCheck(val, &SDictType)) {
-    //std::cout << "rec_store_item:: sdict\n";
-    offset_ptr<sdict> other = ((SDict*)val)->sd;
-    sdict_set_sdict_item(sd, strkey, other);
+    //std::cout << "rec_store_item:: smap\n";
+    offset_ptr<smap> other = ((SDict*)val)->sm;
+    smap_set_sdict_item(sd, strkey, other);
     return 0;
   } else if (PyObject_TypeCheck(val, &SListType)) {
     //std::cout << "rec_store_item:: slist\n";
-    offset_ptr<sdict> other = ((SList*)val)->sd;
-    sdict_set_slist_item(sd, strkey, other);
+    offset_ptr<smap> other = ((SList*)val)->sm;
+    smap_set_slist_item(sd, strkey, other);
     return 0;
   } else if (PyObject_HasAttrString(val, "__class__")) {
     //std::cout << "SETTING OBJECT " << strkey << ": " << val << "\n";
@@ -1343,8 +1340,8 @@ do_rec_store_item(offset_ptr<sdict> sd, const char* strkey, PyObject* val, visit
     Py_INCREF(val);
     //std::cout << &SDictType << "::" << PyObject_Type(_dict_) << "\n";
     if (PyObject_TypeCheck(_dict_, &SDictType)) { // blessed
-      //std::cout << "  OBJ: is SHARED already. Just set sd on our dict: " << ((SDict*)_dict_)->sd << "\n";
-      sdict_set_obj_item(sd, strkey,  ((SDict*)_dict_)->sd, pyclass, val);
+      //std::cout << "  OBJ: is SHARED already. Just set sd on our dict: " << ((SDict*)_dict_)->sm << "\n";
+      smap_set_obj_item(sd, strkey,  ((SDict*)_dict_)->sm, pyclass, val);
       return 0;
     } else { //not blessed
       //std::cout << "  OBJ: is NOT shared. Creating SDict\n";
@@ -1354,17 +1351,17 @@ do_rec_store_item(offset_ptr<sdict> sd, const char* strkey, PyObject* val, visit
       }
       int ret;
       //std::cout << "  OBJ: populating our blessed __dict__: " << (void*)new_obj_dict <<"\n";
-      if ((ret = populate_sdict_with_dict(new_obj_dict->sd, _dict_)) != 0) {
+      if ((ret = populate_smap_with_dict(new_obj_dict->sm, _dict_)) != 0) {
         return ret;
       }
 
-      //std::cout << "  OBJ: setting new sdict as __dict__\n";
+      //std::cout << "  OBJ: setting new smap as __dict__\n";
       if (PyObject_SetAttrString(val, "__dict__", (PyObject*)new_obj_dict) != 0) {
         return 1;
       }
 
-      //std::cout << "  OBJ: the __dict__'s sd " << new_obj_dict->sd << " will be set to our entry: " << strkey << "\n";
-      sdict_set_obj_item(sd, strkey, new_obj_dict->sd, pyclass, val);
+      //std::cout << "  OBJ: the __dict__'s sd " << new_obj_dict->sm << " will be set to our entry: " << strkey << "\n";
+      smap_set_obj_item(sd, strkey, new_obj_dict->sm, pyclass, val);
       return 0;
     }
   } else {
