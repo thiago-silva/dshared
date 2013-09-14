@@ -45,6 +45,9 @@ p.join()
   you noticed there is no "tests" directory here, that should settle any crazy
   ideas related to putting this stuff in production environments.
 
+* There is no memory mechanism for collecting garbage (and it is unlikely that
+  I will work on this). Once shared, forever lived.
+
 * Last but not least, I do not intend to maintain or improve this library, as
   it was written to fix a very particular and temporary problem. So, in the
   case you find this extension somehow useful and wish to fork/improve it,
