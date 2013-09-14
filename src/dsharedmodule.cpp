@@ -814,6 +814,8 @@ PyObject_from_variant(offset_ptr<smap_value_t> val) {
   switch(val->tag) {
     case smap_value_t::NIL:
       return Py_None;
+    case smap_value_t::BOOL:
+      return PyBool_FromLong(val->num);
     case smap_value_t::STRING:
       return PyString_FromString(val->str.c_str());
     case smap_value_t::NUMBER:
@@ -1262,6 +1264,9 @@ do_rec_store_item(offset_ptr<smap> sd, const char* strkey, PyObject* val, visite
     }
   } else if (val == Py_None) {
     smap_set_null_item(sd, strkey);
+    return 0;
+  } else if (PyBool_Check(val)) {
+    smap_set_bool_item(sd, strkey, val == Py_True);
     return 0;
   } else if (PyString_Check(val)) {
     smap_set_string_item(sd, strkey, PyString_AsString(val));

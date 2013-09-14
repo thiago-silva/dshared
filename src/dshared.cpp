@@ -74,6 +74,12 @@ MManager::create_null_value() {
 }
 
 smap_value_t*
+MManager::create_bool_value(int b) {
+  return segment.construct<smap_value_t>
+    (boost::interprocess::anonymous_instance)(this, smap_value_t::BOOL, b, "", (void*)NULL, (void*)NULL, (void*)NULL, void_alloc);
+}
+
+smap_value_t*
 MManager::create_number_value(long num) {
   return segment.construct<smap_value_t>
     (boost::interprocess::anonymous_instance)(this, smap_value_t::NUMBER, num, "", (void*)NULL, (void*)NULL, (void*)NULL, void_alloc);
@@ -114,6 +120,13 @@ void
 smap_set_null_item(offset_ptr<smap> sd, const char* strkey) {
   char_string*  key = manager->create_string(strkey);
   smap_value_t* val = manager->create_null_value();
+  (*sd)[*key] = val;
+}
+
+void
+smap_set_bool_item(offset_ptr<smap> sd, const char* strkey, int b) {
+  char_string*  key = manager->create_string(strkey);
+  smap_value_t* val = manager->create_bool_value(b);
   (*sd)[*key] = val;
 }
 

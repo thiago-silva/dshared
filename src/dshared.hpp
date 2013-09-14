@@ -23,6 +23,7 @@ class smap_value_t {
 public:
   typedef enum {
     NIL,
+    BOOL,
     NUMBER,
     STRING,
     SDICT,
@@ -71,6 +72,7 @@ public:
   smap*          create_smap();
   char_string*    create_string(const char* str);
   smap_value_t*  create_null_value();
+  smap_value_t*  create_bool_value(int);
   smap_value_t*  create_number_value(long num);
   smap_value_t*  create_string_value(const char* str);
   smap_value_t*  create_sdict_value(offset_ptr<smap> d);
@@ -84,6 +86,7 @@ public:
 };
 
 void smap_set_null_item(offset_ptr<smap> sd, const char* key);
+void smap_set_bool_item(offset_ptr<smap> sd, const char* key, int val);
 void smap_set_string_item(offset_ptr<smap> sd, const char* key, const char* value);
 void smap_set_number_item(offset_ptr<smap> sd, const char* key, long num);
 void smap_set_sdict_item(offset_ptr<smap> sd, const char* key, offset_ptr<smap> value);
