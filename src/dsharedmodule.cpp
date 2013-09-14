@@ -61,7 +61,7 @@ populate_sdict_with_list(offset_ptr<sdict> entry, PyObject* val, visited_map_t v
 /** dshared.list  **/
 
 typedef struct {
-  PyListObject list;
+  PyObject_HEAD //PyListObject list;
   offset_ptr<sdict> sd;
 } SList;
 
@@ -77,6 +77,9 @@ SList_print(PyObject *self, FILE *file, int flags);
 
 static int
 SList_len(PyObject* self);
+
+static PyObject*
+SList_append(PyObject* o1, PyObject* o2);
 
 static PyObject*
 SList_concat(PyObject* o1, PyObject* o2);
@@ -104,9 +107,10 @@ static PyObject*
 SList_create_list(offset_ptr<sdict_value_t>);
 
 static PyObject*
-SDict_for_sdict(offset_ptr<sdict_value_t> val);
-PyObject*
 SList_Iter_iternext(PyObject *_self);
+
+static PyObject*
+SList_add(PyObject* _self, PyObject* args);
 
 static PySequenceMethods
 slist_seq = {
@@ -122,8 +126,43 @@ slist_seq = {
   0 /* sq_inplace_repeat */
 };
 
+static PyNumberMethods
+slist_nums = {
+  SList_add,   /* binaryfunc nb_add;          __add__ */
+    0,            /* binaryfunc nb_subtract;     __sub__ */
+    0,            /* binaryfunc nb_multiply;     __mul__ */
+    0,            /* binaryfunc nb_divide;       __div__ */
+    0,            /* binaryfunc nb_remainder;    __mod__ */
+    0,            /* binaryfunc nb_divmod;       __divmod__ */
+    0,            /* ternaryfunc nb_power;       __pow__ */
+    0,            /* unaryfunc nb_negative;      __neg__ */
+    0,            /* unaryfunc nb_positive;      __pos__ */
+    0,            /* unaryfunc nb_absolute;      __abs__ */
+    0,            /* inquiry nb_nonzero;         __nonzero__ */
+    0,            /* unaryfunc nb_invert;        __invert__ */
+    0,            /* binaryfunc nb_lshift;       __lshift__ */
+    0,            /* binaryfunc nb_rshift;       __rshift__ */
+    0,            /* binaryfunc nb_and;          __and__ */
+    0,            /* binaryfunc nb_xor;          __xor__ */
+    0,            /* binaryfunc nb_or;           __or__ */
+    0,            /* coercion nb_coerce;         __coerce__ */
+    0,            /* unaryfunc nb_int;           __int__ */
+    0,            /* unaryfunc nb_long;          __long__ */
+    0,            /* unaryfunc nb_float;         __float__ */
+    0,            /* unaryfunc nb_oct;           __oct__ */
+    0,            /* unaryfunc nb_hex;           __hex__ */
+};
+
 static PyMethodDef
 SList_methods[] = {
+  {"append", (PyCFunction)SList_append, METH_VARARGS,
+   PyDoc_STR("append")},
+    // {"__concat__", (PyCFunction)SList_concat, METH_VARARGS,
+    //  PyDoc_STR("__add__")},
+    // {"__add__", (PyCFunction)SList_add, METH_VARARGS,
+    //  PyDoc_STR("__add__")},
+    // {"__radd__", (PyCFunction)SList_radd, METH_VARARGS,
+    //  PyDoc_STR("__radd__")},
     {NULL, NULL},
 };
 
@@ -141,7 +180,7 @@ SListType = {
     0,                       /* tp_setattr */
     0,                       /* tp_compare */
     0,                       /* tp_repr */
-    0,                       /* tp_as_number */
+    &slist_nums,             /* tp_as_number */
     &slist_seq,              /* tp_as_sequence */
     0,                       /* tp_as_mapping */
     0,                       /* tp_hash */
@@ -150,9 +189,10 @@ SListType = {
     0,                       /* tp_getattro */
     0,                       /* tp_setattro */
     0,                       /* tp_as_buffer */
-    Py_TPFLAGS_DEFAULT |
-      Py_TPFLAGS_HAVE_SEQUENCE_IN | /* tp_flags */
-      Py_TPFLAGS_HAVE_ITER,
+    Py_TPFLAGS_DEFAULT       /* tp_flags */
+      | Py_TPFLAGS_HAVE_SEQUENCE_IN
+      | Py_TPFLAGS_HAVE_ITER
+      | Py_TPFLAGS_CHECKTYPES,
     0,                       /* tp_doc */
     0,                       /* tp_traverse */
     0,                       /* tp_clear */
@@ -231,47 +271,112 @@ SList_len(PyObject* self) {
 }
 
 PyObject*
-SList_concat(PyObject *l, PyObject *r) {
-  std::cout << "slists::concat\n";
-  Py_ssize_t lsize, rsize, size;
-  if (PyList_CheckExact(l)) {
-    lsize = PyList_Size(l);
-    std::cout << "slists::concat l: py list: " << lsize << "\n";
-  } else if (PyObject_TypeCheck(l, &SListType)) {
-    lsize = ((SList*)l)->sd->size();
-    std::cout << "slists::concat l: slist: " << lsize << "\n";
-  } else {
-    PyErr_SetString(PyExc_TypeError,"unknown object to concatenate with");
-    return NULL;
-  }
+_SList_add(SList* lhs, PyListObject* _rhs) {
+  PyObject* rhs = (PyObject*) _rhs;
+  //std::cout << "_SList_add[1]\n";
 
-  if (PyList_CheckExact(r)) {
-    rsize = PyList_Size(r);
-    std::cout << "slists::concat r: list: " << rsize << "\n";
-  } else if (PyObject_TypeCheck(r, &SListType)) {
-    rsize = ((SList*)r)->sd->size();
-    std::cout << "slists::concat r: slist: " << rsize << "\n";
-  } else {
-    PyErr_SetString(PyExc_TypeError,"unknown object to concatenate with");
-    return NULL;
-  }
+  Py_ssize_t size = lhs->sd->size();
 
-  size = lsize + rsize;
+  Py_ssize_t rsize = PyList_Size(rhs);
+  size += rsize;
 
-  std::cout << "slists::concat creating resulting list: " << size << "\n";
   PyObject* lst = PyList_New(size);
-  Py_ssize_t i;
-  for (i = 0; i < lsize; i++) {
-    std::cout << "slists::concat storing l[" << i << "] in " << i << "\n";
-    PyList_SetItem(lst, i, PyList_GetItem(l, i));
+  sdict::size_type i;
+  for (i = 0; i < lhs->sd->size(); i++) {
+    std::stringstream s;
+    s << i;
+    offset_ptr<sdict_value_t> val = sdict_get_item(lhs->sd, s.str().c_str());
+    PyObject* o = PyObject_from_variant(val);
+    PyList_SetItem(lst, i, o);
   }
 
   for (Py_ssize_t j = 0; j < rsize; i++, j++) {
-    std::cout << "slists::concat storing r[" << j << "] in " << i << "\n";
-    PyList_SetItem(lst, i, PyList_GetItem(r, j));
+    PyObject* o = PyList_GetItem(rhs, j);
+    PyList_SetItem(lst, i, o);
   }
   Py_INCREF(lst);
   return lst;
+}
+
+PyObject*
+_SList_add(PyListObject* _lhs, SList* rhs) {
+  PyObject* lhs = (PyObject*) _lhs;
+  //std::cout << "_SList_add[2]\n";
+
+  Py_ssize_t lsize = PyList_Size(lhs);
+  Py_ssize_t rsize = rhs->sd->size();
+  Py_ssize_t size = lsize + rsize;
+
+  PyObject* lst = PyList_New(size);
+  Py_ssize_t i;
+  for (i = 0; i < lsize; i++) {
+    PyObject* o = PyList_GetItem(lhs, i);
+    PyList_SetItem(lst, i, o);
+  }
+
+  for (Py_ssize_t j = 0; j < rsize; i++, j++) {
+    std::stringstream s;
+    s << j;
+    offset_ptr<sdict_value_t> val = sdict_get_item(rhs->sd, s.str().c_str());
+    PyObject* o = PyObject_from_variant(val);
+    PyList_SetItem(lst, i, o);
+  }
+  Py_INCREF(lst);
+  return lst;
+}
+
+PyObject*
+_SList_add(SList* lhs, SList* rhs) {
+  PyErr_SetString(PyExc_TypeError," TODO");
+  return NULL;
+}
+
+static PyObject*
+SList_add(PyObject* self, PyObject* other) {
+  if (PyObject_TypeCheck(self, &SListType) &&
+      PyList_CheckExact(other)) {
+    return _SList_add((SList*)self, (PyListObject*)other);
+  } else if (PyObject_TypeCheck(other, &SListType) &&
+             PyList_CheckExact(self)) {
+    return _SList_add((PyListObject*)self, (SList*)other);
+  } if (PyObject_TypeCheck(self, &SListType) &&
+        PyObject_TypeCheck(other, &SListType)) {
+    return _SList_add((SList*)self, (SList*)other);
+  } else {
+    PyErr_SetString(PyExc_TypeError," can't concatenate slist with unknown type");
+    return NULL;
+  }
+}
+
+PyObject*
+SList_concat(PyObject *self, PyObject *other) {
+  //std::cout << "slists::concat\n";
+  return SList_add(self, other);
+}
+
+PyObject*
+SList_append(PyObject* _self, PyObject* args) {
+
+  PyObject *arg;
+  if (PyTuple_Size(args) == 0) {
+      PyErr_SetString(PyExc_TypeError,"expected one argument");
+      return NULL;
+  } else {
+    if (!PyArg_UnpackTuple(args, "append", 1, 1, &arg)) {
+      PyErr_SetString(PyExc_TypeError,"expected one argument");
+      return NULL;
+    }
+  }
+
+  SList* self = (SList*) _self;
+  sdict::size_type size = self->sd->size();
+  std::stringstream s;
+  s << size;
+  if (do_rec_store_item(self->sd, s.str().c_str(), arg) != 0) {
+    return NULL;
+  }
+  Py_INCREF(Py_None);
+  return Py_None;
 }
 
 int
@@ -289,14 +394,14 @@ SList_get_item(PyObject* _self, Py_ssize_t key) {
   s << key;
   const char* strkey = s.str().c_str();
   try {
-    std::cout << "slist::get_item " << strkey << "\n";
+    //std::cout << "slist::get_item " << strkey << "\n";
     offset_ptr<sdict_value_t> val = sdict_get_item(self->sd, strkey);
-    std::cout << "  slist::get_item variant " << val <<"|" << val.get() << "\n";
+    //std::cout << "  slist::get_item variant " << val <<"|" << val.get() << "\n";
     PyObject* obj = PyObject_from_variant(val);
     if (obj) {
       Py_INCREF(obj);
     }
-    std::cout << "  slist::get_item returning " << obj << "\n";
+    //std::cout << "  slist::get_item returning " << obj << "\n";
     return obj;
   } catch(...) { //out of range
     PyErr_SetString(PyExc_KeyError,strkey);
@@ -352,6 +457,7 @@ SList_str(PyObject *self) {
 
 int
 SList_init(SList *self, PyObject *args, PyObject *kwds) {
+  //std::cout << "SList_init\n";
   if (manager == NULL) {
     PyErr_SetString(PyExc_RuntimeError,"init() was not called");
     return -1;
@@ -379,9 +485,9 @@ SList_init(SList *self, PyObject *args, PyObject *kwds) {
     return -1;
   }
 
-  if (PyList_Type.tp_init((PyObject *)self, PyTuple_New(0), PyDict_New()) < 0) {
-    return -1;
-  }
+  // if (PyList_Type.tp_init((PyObject *)self, PyTuple_New(0), PyDict_New()) < 0) {
+  //   return -1;
+  // }
   return 0;
 
 }
@@ -435,14 +541,14 @@ populate_sdict_with_list(offset_ptr<sdict> entry, PyObject* val, visited_map_t v
 
 PyObject*
 SList_for_sdict(offset_ptr<sdict_value_t> val) {
-  //std::cout << "SDict_for_sdict\n";
-  //std::cout << "   SDict_for_sdict: has in cache?" << val->has_cache() << "\n";
+  //std::cout << "Slist_for_sdict\n";
+  //std::cout << "   Slist_for_sdict: has in cache?" << val->has_cache() << "\n";
   PyObject* obj;
   if (val->has_cache()) {
     obj = (PyObject*)val->cache();
-    //std::cout << "   SDict_for_sdict: cached obj: " << obj << "\n";
+    //std::cout << "   Slist_for_sdict: cached obj: " << obj << "\n";
   } else {
-    //std::cout << "  SDict_for_sdict: creating pydict...\n";
+    //std::cout << "  SList_for_sdict: creating pylist...\n";
     obj = SList_create_list(val);
   }
   Py_INCREF(obj);
@@ -451,13 +557,12 @@ SList_for_sdict(offset_ptr<sdict_value_t> val) {
 
 PyObject*
 SList_create_list(offset_ptr<sdict_value_t> variant) {
-  //std::cout << "SDict_create_dict:: for variant: " << variant << "|" << variant.get() << "\n";
+  //std::cout << "SList_create_dict:: for variant: " << variant << "|" << variant.get() << "\n";
   SList* obj = (SList*) PyObject_CallObject((PyObject *) &SListType, PyTuple_New(0));
 
-  //std::cout << "SDict_create_dict:: created dict pyobject : " << obj << ". Caching (and crashing?)\n";
+  //std::cout << "SList_create_dict:: created list pyobject : " << obj << ". Caching (and crashing?)\n";
   variant->cache_obj(obj);
   //std::cout << "SUCC. SDict_create_dict:: setting pyobj-sd: " << variant->d << "|" << variant->d.get() << "\n";
-  //obj->sd = offset_ptr<sdict>((sdict*)variant->d.get());
 
   //std::cout << "CAST[before]  >>>" << variant->d << "|" << variant->d.get() << "\n";
   obj->sd = offset_ptr<sdict>(static_cast<sdict*>(variant->d.get()));
@@ -1128,7 +1233,7 @@ do_rec_store_item(offset_ptr<sdict> sd, const char* strkey, PyObject* val, visit
       if ((ret = populate_sdict_with_list(entry, val, visited)) != 0) {
         return ret;
       }
-      //std::cout << "rec_store_item:: populated it, storing...\n";
+      //std::cout << "rec_store_item:: slist: populated it, storing...\n";
       sdict_set_slist_item(sd, strkey, entry);
       return 0;
     }
@@ -1156,7 +1261,7 @@ do_rec_store_item(offset_ptr<sdict> sd, const char* strkey, PyObject* val, visit
     sdict_set_sdict_item(sd, strkey, other);
     return 0;
   } else if (PyObject_TypeCheck(val, &SListType)) {
-    //std::cout << "rec_store_item:: sdict\n";
+    //std::cout << "rec_store_item:: slist\n";
     offset_ptr<sdict> other = ((SList*)val)->sd;
     sdict_set_slist_item(sd, strkey, other);
     return 0;
@@ -1258,16 +1363,18 @@ DSharedMethods[] = {
 };
 
 
+
 PyMODINIT_FUNC
 initdshared(void)
 {
-  SListType.tp_base = &PyList_Type;
+  // SListType.tp_base = &PyList_Type;
+  SListType.tp_new = PyType_GenericNew;
   if (PyType_Ready(&SListType) < 0)
     return;
 
-  SDictType.tp_base = &PyDict_Type;
-  if (PyType_Ready(&SDictType) < 0)
-    return;
+  SDictType.tp_base = &PyDict_Type;   //SDict has to be a dict
+  if (PyType_Ready(&SDictType) < 0)   //so python doesn't complain
+    return;                           //when we obj.__class__ = <SDict>
 
   PyObject *m = Py_InitModule("dshared", DSharedMethods);
 
