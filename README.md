@@ -16,7 +16,7 @@ import dshared
 from multiprocessing import Process
 dshared.init("mymem", 2 ** 10) #creates shared mem of size 2 ** 10
 
-shm = dshared.col()
+shm = dshared.dict()
 
 def in_process_1():
   shm['d'] = {'key':'val'}
