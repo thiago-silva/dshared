@@ -622,6 +622,12 @@ static PyObject*
 SDict_items(PyObject* _self, PyObject* args);
 
 static PyObject*
+SDict_keys(PyObject* _self, PyObject* args);
+
+static PyObject*
+SDict_values(PyObject* _self, PyObject* args);
+
+static PyObject*
 SDict_iter(PyObject* self);
 
 static PyObject*
@@ -663,6 +669,10 @@ SDict_methods[] = {
     {"items", (PyCFunction)SDict_items, METH_NOARGS,
      PyDoc_STR("dict items")},
     {"append", (PyCFunction)SDict_append, METH_VARARGS,
+     PyDoc_STR("append")},
+    {"keys", (PyCFunction)SDict_keys, METH_VARARGS,
+     PyDoc_STR("append")},
+    {"values", (PyCFunction)SDict_values, METH_VARARGS,
      PyDoc_STR("append")},
     {NULL, NULL},
 };
@@ -983,6 +993,56 @@ SDict_items(PyObject* _self, PyObject* args) {
       return NULL;
     }
     if (PyList_SetItem(lst, i, tpl) == -1) {
+      return NULL;
+    }
+  }
+  Py_INCREF(lst);
+  return lst;
+}
+
+PyObject*
+SDict_keys(PyObject* _self, PyObject* args) {
+  SDict* self = (SDict*) _self;
+
+  PyObject *lst;
+  PyObject *py_key;
+
+  if ((lst = PyList_New(self->sd->size())) == NULL) {
+    return NULL;
+  }
+  int i = 0;
+  for (sdict::iterator it = self->sd->begin();
+       it != self->sd->end(); i++, it++) {
+    if ((py_key = PyString_FromString(it->first.c_str())) == NULL) {
+      return NULL;
+    }
+    if (PyList_SetItem(lst, i, py_key) == -1) {
+      return NULL;
+    }
+  }
+  Py_INCREF(lst);
+  return lst;
+}
+
+
+PyObject*
+SDict_values(PyObject* _self, PyObject* args) {
+  SDict* self = (SDict*) _self;
+
+  PyObject *lst;
+  PyObject *py_val;
+
+  if ((lst = PyList_New(self->sd->size())) == NULL) {
+    return NULL;
+  }
+  int i = 0;
+  for (sdict::iterator it = self->sd->begin();
+       it != self->sd->end(); i++, it++) {
+    offset_ptr<sdict_value_t> sdval = sdict_get_item(self->sd, it->first.c_str());
+    if ((py_val = PyObject_from_variant(sdval)) == NULL) {
+      return NULL;
+    }
+    if (PyList_SetItem(lst, i, py_val) == -1) {
       return NULL;
     }
   }
