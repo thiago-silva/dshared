@@ -609,6 +609,7 @@ SList_str(PyObject *self) {
 
 int
 SList_init(SList *self, PyObject *args, PyObject *kwds) {
+  Py_INCREF(self);
   //std::cout << "SList_init\n";
   if (manager == NULL) {
     PyErr_SetString(PyExc_RuntimeError,"init() was not called");
@@ -1299,6 +1300,7 @@ SDict_len(PyObject* self) {
 
 int
 SDict_init(SDict *self, PyObject *args, PyObject *kwds) {
+  Py_INCREF(self);
   if (manager == NULL) {
     PyErr_SetString(PyExc_RuntimeError,"init() was not called");
     return -1;
