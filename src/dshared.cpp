@@ -36,7 +36,10 @@ smap_value_t::cache() {
     std::cerr << "BUG: returning null cache\n";
     throw;
   }
-  return (*pycache).at(getpid());
+  //std::cout << "smap_value_t::cache boom?\n";
+  void *ret = (*pycache).at(getpid());
+  //std::cout << "smap_value_t::cache no boom\n";
+  return ret;
 }
 
 void
@@ -120,6 +123,7 @@ void
 smap_set_null_item(offset_ptr<smap> sd, const char* strkey) {
   char_string*  key = manager->create_string(strkey);
   smap_value_t* val = manager->create_null_value();
+  //std::cout << "smap_set_null_item: setting null to " << strkey << "\n";
   (*sd)[*key] = val;
 }
 
@@ -127,6 +131,7 @@ void
 smap_set_bool_item(offset_ptr<smap> sd, const char* strkey, int b) {
   char_string*  key = manager->create_string(strkey);
   smap_value_t* val = manager->create_bool_value(b);
+  //std::cout << "smap_set_null_item: setting bool to " << strkey << "\n";
   (*sd)[*key] = val;
 }
 
@@ -134,6 +139,7 @@ void
 smap_set_string_item(offset_ptr<smap> sd, const char* strkey, const char* value) {
   char_string*  key = manager->create_string(strkey);
   smap_value_t* val = manager->create_string_value(value);
+  //std::cout << "smap_set_null_item: setting string to " << strkey << "\n";
   (*sd)[*key] = val;
 }
 
@@ -141,6 +147,7 @@ void
 smap_set_number_item(offset_ptr<smap> sd, const char* strkey, long num) {
   char_string*  key = manager->create_string(strkey);
   smap_value_t* val = manager->create_number_value(num);
+  //std::cout << "smap_set_null_item: setting number to " << strkey << "\n";
   (*sd)[*key] = val;
 }
 
@@ -170,13 +177,17 @@ smap_set_obj_item(offset_ptr<smap> sd, const char* strkey, offset_ptr<smap> valu
   char_string*  key = manager->create_string(strkey);
   smap_value_t* val = manager->create_obj_value(value, pyclass);
   val->cache_obj(local_pyobj);
+  //std::cout << "smap_set_null_item: setting obj to " << strkey << "\n";
   (*sd)[*key] = val;
 }
 
 offset_ptr<smap_value_t>
 smap_get_item(offset_ptr<smap> sd, const char* strkey) {
   char_string* k = manager->create_string(strkey);
-  return sd->at(*k);
+  //std::cout << "smap_get_item: trying to get key: " << strkey << "\n";
+  offset_ptr<smap_value_t> p =  sd->at(*k);
+  //std::cout << "smap_get_item: got variant: " << p << "\n";
+  return p;
 }
 
 bool

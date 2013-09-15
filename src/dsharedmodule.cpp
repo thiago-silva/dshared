@@ -502,6 +502,8 @@ SList_set_item(PyObject* _self, Py_ssize_t key, PyObject* val) {
 
 PyObject*
 SList_get_item(PyObject* _self, Py_ssize_t key) {
+  //std::cout << "SList_get_item\n";
+
   SList* self = (SList*) _self;
 
   std::stringstream s;
@@ -698,8 +700,9 @@ smap_entry_as_SList(offset_ptr<smap_value_t> val) {
   //std::cout << "   Slist_for_smap: has in cache?" << val->has_cache() << "\n";
   PyObject* obj;
   if (val->has_cache()) {
+    //std::cout << "smap_entry_as_SList has cache...\n";
     obj = (PyObject*)val->cache();
-    //std::cout << "   Slist_for_smap: cached obj: " << obj << "\n";
+    //std::cout << "   Slist_for_smap: cached obj to return: " << obj << "\n";
   } else {
     //std::cout << "  SList_for_smap: creating pylist...\n";
     obj = SList_create_list(val);
@@ -945,11 +948,16 @@ SDictType = {
 
 PyObject*
 smap_entry_as_SDICT(offset_ptr<smap_value_t> val) {
+  //std::cout << "smap_entry_as_SDICT\n";
   PyObject* obj;
   if (val->has_cache()) {
+    //std::cout << "smap_entry_as_SDICT: val has cache, getting...\n";
     obj = (PyObject*)val->cache();
+    //std::cout << "smap_entry_as_SDICT: returning cache " << obj << "\n";
   } else {
+    //std::cout << "smap_entry_as_SDICT: NO CACHE...creating\n";
     obj = SDict_create_dict(val);
+    //std::cout << "smap_entry_as_SDICT: returning new dict " << obj << "\n";
   }
   Py_INCREF(obj);
   return obj;
@@ -972,6 +980,7 @@ smap_entry_as_PYOBJ(offset_ptr<smap_value_t> val) {
 
 PyObject*
 PyObject_from_variant(offset_ptr<smap_value_t> val) {
+  //std::cout << "PyObject_from_variant: tag " << val->tag << "\n";
   switch(val->tag) {
     case smap_value_t::NIL:
       return Py_None;
@@ -1030,6 +1039,7 @@ SDict_get_item(PyObject* _self, PyObject* key) {
   }
 
   strkey = PyString_AsString(key);
+  //std::cout << "SDict_get_item " << strkey << "\n";
 
   try {
     //std::cout << "get_item " << strkey << "\n";
@@ -1055,7 +1065,9 @@ populate_smap_with_dict(offset_ptr<smap> entry, PyObject* val, visited_map_t vis
   Py_ssize_t pos = 0;
   int ret;
   visited[val] = entry;
+  //std::cout << "populate_smap_with_dict\n";
   while (PyDict_Next(val, &pos, &key, &value)) {
+    //std::cout << "populate_smap_with_dict:: rec_storing...\n";
     if ((ret = rec_store_item(entry, key, value, visited)) != 0) {
       return ret;
     }
@@ -1207,10 +1219,14 @@ SDict_update(PyObject* _self, PyObject* args) {
 
 PyObject*
 SDict_values(PyObject* _self, PyObject* args) {
+  //std::cout << "\n\n\n\n++++++++++>>>>>>>>>>>>>>>>>>>>>>> SDict_values\n";
   SDict* self = (SDict*) _self;
 
   PyObject *lst;
   PyObject *py_val;
+
+
+  // SDict* obj = (SDict*) PyObject_CallObject((PyObject *) &SDictType, PyTuple_New(0));
 
   if ((lst = PyList_New(self->sm->size())) == NULL) {
     return NULL;
@@ -1225,12 +1241,15 @@ SDict_values(PyObject* _self, PyObject* args) {
     //offset_ptr<smap_value_t> sdval2 = smap_get_item(self->sm, it->first.c_str());
     //std::cout << "variant2 " << i << " is " << sdval2 << "\n";
     if ((py_val = PyObject_from_variant(sdval)) == NULL) {
+      //std::cout << "error getting py from variant\n";
       return NULL;
     }
     if (PyList_SetItem(lst, i, py_val) == -1) {
+      //std::cout << "error setting py to result list\n";
       return NULL;
     }
   }
+  //std::cout << "returning list\n";
   Py_INCREF(lst);
   return lst;
 }
