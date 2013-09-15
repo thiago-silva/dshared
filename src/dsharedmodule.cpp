@@ -71,10 +71,19 @@ static int
 SList_print(PyObject *self, FILE *file, int flags);
 
 static int
+SList_compare(PyObject *o1, PyObject *o2);
+
+static PyObject*
+SList_rich_compare(PyObject *a, PyObject *b, int op);
+
+static int
 SList_len(PyObject* self);
 
 static PyObject*
 SList_append(PyObject* o1, PyObject* o2);
+
+static PyObject*
+SList_insert(PyObject* self, PyObject* args);
 
 static PyObject*
 SList_concat(PyObject* o1, PyObject* o2);
@@ -84,6 +93,9 @@ SList_set_item(PyObject* _self, Py_ssize_t key, PyObject* val);
 
 static PyObject*
 SList_get_item(PyObject* _self, Py_ssize_t key);
+
+static PyObject*
+SList_slice(PyObject *o, Py_ssize_t i1, Py_ssize_t i2);
 
 static int
 SList_contains(PyObject *self, PyObject *value);
@@ -119,7 +131,7 @@ slist_seq = {
   SList_concat,/* sq_concat */
   0,/* sq_repeat */
   SList_get_item,/* sq_item */
-  0,/* sq_slice */
+  SList_slice,/* sq_slice */
   SList_set_item,/* sq_ass_item */
   0,/* sq_ass_slice */
   SList_contains,/* sq_contains*/
@@ -158,8 +170,8 @@ static PyMethodDef
 SList_methods[] = {
   {"append", (PyCFunction)SList_append, METH_VARARGS,
    PyDoc_STR("append")},
-    // {"__concat__", (PyCFunction)SList_concat, METH_VARARGS,
-    //  PyDoc_STR("__add__")},
+  {"insert", (PyCFunction)SList_insert, METH_VARARGS,
+   PyDoc_STR("insert")},
     // {"__add__", (PyCFunction)SList_add, METH_VARARGS,
     //  PyDoc_STR("__add__")},
     // {"__radd__", (PyCFunction)SList_radd, METH_VARARGS,
@@ -179,7 +191,7 @@ SListType = {
     SList_print,             /* tp_print */
     0,                       /* tp_getattr */
     0,                       /* tp_setattr */
-    0,                       /* tp_compare */
+    SList_compare,           /* tp_compare */
     0,                       /* tp_repr */
     &slist_nums,             /* tp_as_number */
     &slist_seq,              /* tp_as_sequence */
@@ -193,11 +205,13 @@ SListType = {
     Py_TPFLAGS_DEFAULT       /* tp_flags */
       | Py_TPFLAGS_HAVE_SEQUENCE_IN
       | Py_TPFLAGS_HAVE_ITER
-      | Py_TPFLAGS_CHECKTYPES,
+      | Py_TPFLAGS_CHECKTYPES
+      | Py_TPFLAGS_HAVE_RICHCOMPARE,
+
     0,                       /* tp_doc */
     0,                       /* tp_traverse */
     0,                       /* tp_clear */
-    0,                       /* tp_richcompare */
+    SList_rich_compare,      /* tp_richcompare */
     0,                       /* tp_weaklistoffset */
     SList_iter,              /* tp_iter */
     0,                       /* tp_iternext */
@@ -264,6 +278,78 @@ SList_print(PyObject *self, FILE *file, int flags) {
   s << "<dshared.list" << " object at " << self << ">";
   fputs(s.str().c_str(), file);
   return 0;
+}
+
+int
+SList_compare(PyObject *_self, PyObject *o2) { // 0 = True, 1/-1 = False
+  //std::cout << "SList_compare\n";
+  if (_self == o2) {
+    //std::cout << "SList_compare: pointers are the same: 0\n";
+    return 0;
+  }
+  if (!PyObject_TypeCheck(o2, &SListType) &&
+      !PyList_CheckExact(o2)) {
+    //std::cout << "SList_compare: other is not list or slist: 1\n";
+    return 1;
+  }
+  if (!PyObject_TypeCheck(_self, &SListType)) {
+    PyErr_SetString(PyExc_TypeError,"SList_compare: why self is not a slist?");
+    return -1;
+  }
+  SList* self = (SList*) _self;
+  Py_ssize_t tsize =  SList_len(_self);
+  if (tsize == -1) {
+    return -1;
+  }
+  Py_ssize_t osize = PyList_CheckExact(o2) ? PyList_Size(o2) : SList_len(o2);
+  if (osize == -1) {
+    return -1;
+  }
+  //std::cout << "SList_compare: sizes: " << tsize << ":" << osize <<"\n";
+  if (tsize != osize) {
+    //std::cout << "SList_compare: sizes differ: 1\n";
+    return 1;
+  }
+  //std::cout << "....continuing..\n";
+  for (smap::size_type i = 0; i < self->sm->size(); i++) {
+    std::stringstream s;
+    s << i;
+    //std::cout << "getting variant for key " << i << "\n";
+    offset_ptr<smap_value_t> val = smap_get_item(self->sm, s.str().c_str());
+    PyObject* other1 = PyObject_from_variant(val);
+
+    PyObject* other2 = PyList_CheckExact(o2) ? PyList_GetItem(o2, i) : SList_get_item(o2,i);
+
+    //std::cout << "SList_compare: comparing item " << i << " - " << other1 << ":" << other2 << "\n";
+    if (other1 == other2) {
+      continue;
+    } else if (PyObject_RichCompare(other1, other2, Py_EQ) != Py_True) {
+      //std::cout << "SList_compare: item " << i << " not equal, returning 1\n";
+      return 1;
+    }
+  }
+  //std::cout << "SList_compare: equal!\n";
+  return 0;
+}
+
+
+
+PyObject*
+SList_rich_compare(PyObject *self, PyObject *other, int op) {
+  //std::cout << "SList_rich_compare...\n";
+  if (op != Py_EQ) {
+    PyErr_SetString(PyExc_TypeError," TODO: comparision operator not supported");
+    return NULL; //I guess it should be Py_NotImplemented, so we don't break things up
+  }
+  if (SList_compare(self, other) == 0) {
+    //std::cout << "SList_rich_compare: true\n";
+    Py_INCREF(Py_True);
+    return Py_True;
+  } else {
+    //std::cout << "SList_rich_compare: false\n";
+    Py_INCREF(Py_False);
+    return Py_False;
+  }
 }
 
 int
@@ -359,7 +445,7 @@ PyObject*
 SList_append(PyObject* _self, PyObject* args) {
 
   PyObject *arg;
-  if (PyTuple_Size(args) == 0) {
+  if (PyTuple_Size(args) != 1) {
       PyErr_SetString(PyExc_TypeError,"expected one argument");
       return NULL;
   } else {
@@ -378,6 +464,33 @@ SList_append(PyObject* _self, PyObject* args) {
   }
   Py_INCREF(Py_None);
   return Py_None;
+}
+
+
+static PyObject*
+SList_insert(PyObject* _self, PyObject* args) {
+  // PyObject *pos, *lst;
+  // if (PyTuple_Size(args) != 2) {
+  //     PyErr_SetString(PyExc_TypeError,"expected two arguments");
+  //     return NULL;
+  // } else {
+  //   if (!PyArg_UnpackTuple(args, "insert", 2, 2, &pos, &lst)) {
+  //     PyErr_SetString(PyExc_TypeError,"expected two arguments");
+  //     return NULL;
+  //   }
+  // }
+
+  // if (!PyObject_TypeCheck(lst, &SListType) &&
+  //     !PyList_CheckExact(lst)) {
+  //   PyErr_SetString(PyExc_TypeError,"list arg must be [s]list");
+  //   return NULL;
+  // }
+  // if (!PyLong_Check(pos) && !PyInt_Check(pos)) {
+  //   PyErr_SetString(PyExc_TypeError,"pos arg must be a number");
+  //   return NULL;
+  // }
+  PyErr_SetString(PyExc_TypeError,"not implemented");
+  return NULL;
 }
 
 int
@@ -412,21 +525,59 @@ SList_get_item(PyObject* _self, Py_ssize_t key) {
   return Py_None;
 }
 
+static PyObject*
+SList_slice(PyObject *_self, Py_ssize_t begin, Py_ssize_t end) {
+  SList* self = (SList*) _self;
+  //std::cout << "SList_slice " << begin << ":" << end << "\n";
+  if (end > SList_len(_self)) {
+    end = self->sm->size();
+  }
+  Py_ssize_t size = end - begin;
+  PyObject* lst;
+  if (size <= 0) {
+    //std::cout << "SList_slice: empty\n";
+    lst = PyList_New(0);
+  } else {
+    //std::cout << "SList_slice: slicing " << begin << ":" << end << "\n";
+    lst = PyList_New(size);
+    for (Py_ssize_t i = begin, j = 0; i < end; i++, j++) {
+      //std::cout << "getting item " << i << " to put on " << j << "\n";
+      std::stringstream s;
+      s << i;
+      offset_ptr<smap_value_t> val = smap_get_item(self->sm, s.str().c_str());
+      //std::cout << "setting item to " << val << "\n";
+      PyObject* o = PyObject_from_variant(val);
+      PyList_SetItem(lst, j, o);
+    }
+  }
+  Py_INCREF(lst);
+  return lst;
+}
+
 
 int
 SList_contains(PyObject *self, PyObject *value) {
-  offset_ptr<smap> sd = ((SList*)self)->sm;
+  offset_ptr<smap> sm = ((SList*)self)->sm;
+  //std::cout << "SList_contains\n";
 
-  if (!PyLong_Check(value) && !PyInt_Check(value)) {
-    PyErr_SetString(PyExc_TypeError,"unknown type for slist index");
-    return -1;
+  for (smap::size_type i = 0; i < sm->size(); i++) {
+    PyObject* entry = SList_get_item(self, i);
+    if (entry == NULL) {
+      return -1;
+    }
+    //std::cout << "comparing " << entry << ":" << value << "\n";
+    if (entry == value) {
+      //std::cout << "exactly the same\n";
+      return 1;
+    } else {
+      int ret = PyObject_RichCompareBool(entry, value, Py_EQ);
+      //std::cout << "index " << i << " eqs value? " << ret << "\n";
+      if (ret == 1) {
+        return 0;
+      }
+    }
   }
-  long lkey = PyInt_AsLong(value);
-  std::stringstream s;
-  s << lkey;
-  const char* strkey = s.str().c_str();
-
-  return smap_has_item(sd, strkey);
+  return 0;
 }
 
 PyObject*
@@ -629,6 +780,9 @@ static PyObject*
 SDict_values(PyObject* _self, PyObject* args);
 
 static PyObject*
+SDict_update(PyObject* _self, PyObject* args);
+
+static PyObject*
 SDict_iter(PyObject* self);
 
 static PyObject*
@@ -655,6 +809,9 @@ SDict_create_dict(offset_ptr<smap_value_t> variant);
 static PyObject*
 SDict_create_obj(offset_ptr<smap_value_t> variant);
 
+static PyObject*
+SDict_rich_compare(PyObject *a, PyObject *b, int op);
+
 
 static PyMappingMethods
 SDict_mapping = {
@@ -672,9 +829,11 @@ SDict_methods[] = {
     {"append", (PyCFunction)SDict_append, METH_VARARGS,
      PyDoc_STR("append")},
     {"keys", (PyCFunction)SDict_keys, METH_VARARGS,
-     PyDoc_STR("append")},
+     PyDoc_STR("keys")},
     {"values", (PyCFunction)SDict_values, METH_VARARGS,
-     PyDoc_STR("append")},
+     PyDoc_STR("values")},
+    {"update", (PyCFunction)SDict_update, METH_VARARGS,
+     PyDoc_STR("update")},
     {NULL, NULL},
 };
 
@@ -758,13 +917,14 @@ SDictType = {
     0,                       /* tp_getattro */
     0,                       /* tp_setattro */
     0,                       /* tp_as_buffer */
-    Py_TPFLAGS_DEFAULT |
-      Py_TPFLAGS_HAVE_SEQUENCE_IN | /* tp_flags */
-      Py_TPFLAGS_HAVE_ITER,
+    Py_TPFLAGS_DEFAULT
+    | Py_TPFLAGS_HAVE_RICHCOMPARE
+    | Py_TPFLAGS_HAVE_SEQUENCE_IN /* tp_flags */
+    | Py_TPFLAGS_HAVE_ITER,
     0,                       /* tp_doc */
     0,                       /* tp_traverse */
     0,                       /* tp_clear */
-    0,                       /* tp_richcompare */
+    SDict_rich_compare,      /* tp_richcompare */
     0,                       /* tp_weaklistoffset */
     SDict_iter,              /* tp_iter */
     0,                       /* tp_iternext */
@@ -1023,6 +1183,26 @@ SDict_keys(PyObject* _self, PyObject* args) {
   return lst;
 }
 
+static PyObject*
+SDict_update(PyObject* _self, PyObject* args) {
+  PyObject *arg;
+  if (!PyArg_UnpackTuple(args, "update", 1, 1, &arg)) {
+    PyErr_SetString(PyExc_TypeError,"expected one argument");
+    return NULL;
+  }
+
+  if (!PyDict_CheckExact(arg) && !PyObject_TypeCheck(arg, &SDictType)) {
+    PyErr_SetString(PyExc_TypeError,"expected a dict or dshared.dict");
+    return NULL;
+  }
+
+  SDict* self = (SDict*) _self;
+  if (populate_smap_with_dict(self->sm, arg) != 0) {
+    return NULL;
+  }
+  Py_INCREF(Py_None);
+  return Py_None;
+}
 
 PyObject*
 SDict_values(PyObject* _self, PyObject* args) {
@@ -1037,7 +1217,12 @@ SDict_values(PyObject* _self, PyObject* args) {
   int i = 0;
   for (smap::iterator it = self->sm->begin();
        it != self->sm->end(); i++, it++) {
-    offset_ptr<smap_value_t> sdval = smap_get_item(self->sm, it->first.c_str());
+    //std::cout << "TOP FOR : " << self << " | " << self->sm << " -- size: " << self->sm->size() << "\n";
+    offset_ptr<smap_value_t> sdval = it->second;
+
+    //std::cout << "variant " << i << " is " << sdval << "\n";
+    //offset_ptr<smap_value_t> sdval2 = smap_get_item(self->sm, it->first.c_str());
+    //std::cout << "variant2 " << i << " is " << sdval2 << "\n";
     if ((py_val = PyObject_from_variant(sdval)) == NULL) {
       return NULL;
     }
@@ -1236,6 +1421,25 @@ rec_store_item(offset_ptr<smap> sd, PyObject* key, PyObject* val, visited_map_t 
   return do_rec_store_item(sd, strkey, val, visited);
 }
 
+PyObject*
+SDict_rich_compare(PyObject *self, PyObject *other, int op) {
+  //std::cout << "SDict_rich_compare: " << self << ":" << other << "\n";
+  if (op != Py_EQ && op != Py_NE) {
+    PyErr_SetString(PyExc_TypeError," TODO: comparision operator not supported");
+    return NULL;  //I guess it should be Py_NotImplemented, so we don't break things up
+  }
+
+  bool val = (self == other && op == Py_EQ) ||
+    (self != other && op == Py_NE);
+
+  if (val) {
+    Py_INCREF(Py_True);
+    return Py_True;
+  } else {
+    Py_INCREF(Py_False);
+    return Py_False;
+  }
+}
 
 
 
@@ -1318,14 +1522,14 @@ do_rec_store_item(offset_ptr<smap> sd, const char* strkey, PyObject* val, visite
       return 0;
     }
   } else if (PyObject_TypeCheck(val, &SDictType)) {
-    //std::cout << "rec_store_item:: smap\n";
+    //std::cout << "rec_store_item:: slist " << val << " \n";
     offset_ptr<smap> other = ((SDict*)val)->sm;
-    smap_set_sdict_item(sd, strkey, other);
+    smap_set_sdict_item(sd, strkey, other, val);
     return 0;
   } else if (PyObject_TypeCheck(val, &SListType)) {
     //std::cout << "rec_store_item:: slist\n";
     offset_ptr<smap> other = ((SList*)val)->sm;
-    smap_set_slist_item(sd, strkey, other);
+    smap_set_slist_item(sd, strkey, other, val);
     return 0;
   } else if (PyObject_HasAttrString(val, "__class__")) {
     //std::cout << "SETTING OBJECT " << strkey << ": " << val << "\n";

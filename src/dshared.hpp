@@ -89,8 +89,10 @@ void smap_set_null_item(offset_ptr<smap> sd, const char* key);
 void smap_set_bool_item(offset_ptr<smap> sd, const char* key, int val);
 void smap_set_string_item(offset_ptr<smap> sd, const char* key, const char* value);
 void smap_set_number_item(offset_ptr<smap> sd, const char* key, long num);
-void smap_set_sdict_item(offset_ptr<smap> sd, const char* key, offset_ptr<smap> value);
-void smap_set_slist_item(offset_ptr<smap> sd, const char* key, offset_ptr<smap> value);
+void smap_set_sdict_item(offset_ptr<smap> sd, const char* key, offset_ptr<smap> value,
+                         void* local_obj_value = 0);
+void smap_set_slist_item(offset_ptr<smap> sd, const char* key, offset_ptr<smap> value,
+                         void* local_obj_value = 0);
 void smap_set_obj_item(offset_ptr<smap> sd, const char* key, offset_ptr<smap> value,
                         void* pyclass, void* local_obj_value);
 

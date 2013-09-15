@@ -145,16 +145,22 @@ smap_set_number_item(offset_ptr<smap> sd, const char* strkey, long num) {
 }
 
 void
-smap_set_sdict_item(offset_ptr<smap> sd, const char* strkey, offset_ptr<smap> value) {
+smap_set_sdict_item(offset_ptr<smap> sd, const char* strkey, offset_ptr<smap> value, void* local_pyobj) {
   char_string*  key = manager->create_string(strkey);
   smap_value_t* val = manager->create_sdict_value(value);
+  if (local_pyobj)
+    val->cache_obj(local_pyobj);
+  //std::cout << "smap_set_null_item: setting sdict to " << strkey << "\n";
   (*sd)[*key] = val;
 }
 
 void
-smap_set_slist_item(offset_ptr<smap> sd, const char* strkey, offset_ptr<smap> value) {
+smap_set_slist_item(offset_ptr<smap> sd, const char* strkey, offset_ptr<smap> value, void* local_pyobj) {
   char_string*  key = manager->create_string(strkey);
   smap_value_t* val = manager->create_slist_value(value);
+  if (local_pyobj)
+    val->cache_obj(local_pyobj);
+  //std::cout << "smap_set_null_item: setting slist to " << strkey << "\n";
   (*sd)[*key] = val;
 }
 
