@@ -1237,8 +1237,25 @@ SDict_update(PyObject* _self, PyObject* args) {
   }
 
   SDict* self = (SDict*) _self;
-  if (populate_smap_with_dict(self->sm, arg) != 0) {
-    return NULL;
+  if (PyDict_CheckExact(arg)) {
+    if (populate_smap_with_dict(self->sm, arg) != 0) {
+      return NULL;
+    }
+  } else { //SDict
+    SDict* other = (SDict*) arg;
+    for (smap::iterator it = other->sm->begin();
+         it != other->sm->end(); it++) {
+      PyObject* py_key;
+      if ((py_key = PyString_FromString(it->first.c_str())) == NULL) {
+        return NULL;
+      }
+
+      PyObject* val;
+      if ((val = SDict_get_item(arg, py_key)) == NULL) {
+        return NULL;
+      }
+      do_rec_store_item(self->sm, it->first.c_str(), val);
+    }
   }
   Py_INCREF(Py_None);
   return Py_None;
