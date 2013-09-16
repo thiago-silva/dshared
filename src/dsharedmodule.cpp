@@ -86,6 +86,9 @@ static PyObject*
 SList_insert(PyObject* self, PyObject* args);
 
 static PyObject*
+SList_pop(PyObject* self, PyObject* args);
+
+static PyObject*
 SList_concat(PyObject* o1, PyObject* o2);
 
 static int
@@ -172,6 +175,8 @@ SList_methods[] = {
    PyDoc_STR("append")},
   {"insert", (PyCFunction)SList_insert, METH_VARARGS,
    PyDoc_STR("insert")},
+  {"pop", (PyCFunction)SList_pop, METH_VARARGS,
+   PyDoc_STR("pop")},
     // {"__add__", (PyCFunction)SList_add, METH_VARARGS,
     //  PyDoc_STR("__add__")},
     // {"__radd__", (PyCFunction)SList_radd, METH_VARARGS,
@@ -491,6 +496,28 @@ SList_insert(PyObject* _self, PyObject* args) {
   // }
   PyErr_SetString(PyExc_TypeError,"not implemented");
   return NULL;
+}
+
+static PyObject*
+SList_pop(PyObject* _self, PyObject* args) {
+  SList* self = (SList*) _self;
+  smap::size_type size = self->sm->size();
+  if (size == 0) {
+    PyErr_SetString(PyExc_IndexError,"pop from empty slist");
+    return NULL;
+  }
+  std::stringstream s;
+  s << (size-1);
+  const char* strkey = s.str().c_str();
+  offset_ptr<smap_value_t> val = smap_get_item(self->sm, strkey);
+  smap_delete_item(self->sm, strkey);
+  PyObject* obj = PyObject_from_variant(val);
+  if (obj) {
+    Py_INCREF(obj);
+    return obj;
+  } else {
+    return NULL;
+  }
 }
 
 int
