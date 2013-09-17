@@ -474,28 +474,91 @@ SList_append(PyObject* _self, PyObject* args) {
 
 static PyObject*
 SList_insert(PyObject* _self, PyObject* args) {
-  // PyObject *pos, *lst;
-  // if (PyTuple_Size(args) != 2) {
-  //     PyErr_SetString(PyExc_TypeError,"expected two arguments");
-  //     return NULL;
-  // } else {
-  //   if (!PyArg_UnpackTuple(args, "insert", 2, 2, &pos, &lst)) {
-  //     PyErr_SetString(PyExc_TypeError,"expected two arguments");
-  //     return NULL;
-  //   }
-  // }
+  PyObject *pos, *lst;
+  if (PyTuple_Size(args) != 2) {
+      PyErr_SetString(PyExc_TypeError,"expected two arguments");
+      return NULL;
+  } else {
+    if (!PyArg_UnpackTuple(args, "insert", 2, 2, &pos, &lst)) {
+      PyErr_SetString(PyExc_TypeError,"expected two arguments");
+      return NULL;
+    }
+  }
 
-  // if (!PyObject_TypeCheck(lst, &SListType) &&
-  //     !PyList_CheckExact(lst)) {
-  //   PyErr_SetString(PyExc_TypeError,"list arg must be [s]list");
-  //   return NULL;
-  // }
-  // if (!PyLong_Check(pos) && !PyInt_Check(pos)) {
-  //   PyErr_SetString(PyExc_TypeError,"pos arg must be a number");
-  //   return NULL;
-  // }
-  PyErr_SetString(PyExc_TypeError,"not implemented");
-  return NULL;
+  if (!PyLong_Check(pos) && !PyInt_Check(pos)) {
+    PyErr_SetString(PyExc_TypeError,"pos arg must be a number");
+    return NULL;
+  }
+
+  SList* self = (SList*)_self;
+
+  long other_size;
+  if (PyObject_TypeCheck(lst, &SListType)) {
+    other_size = SList_len(lst);
+  } else if (PyList_CheckExact(lst)) {
+    other_size = PyList_Size(lst);
+  } else {
+    PyErr_SetString(PyExc_TypeError,"list arg must be [s]list");
+    return NULL;
+  }
+  //std::cout << "other len: " << other_size << "\n";
+
+  long self_size = self->sm->size();
+  //std::cout << "self len: " << self_size << "\n";
+  long from = PyInt_AsLong(pos);
+  //std::cout << "from: " << from << "\n";;
+  if ((from > self_size) || (from < 0)) {
+    PyErr_SetString(PyExc_TypeError,"pos arg must be in range [0,size]");
+    return NULL;
+  }
+
+  long i, j;
+  //PyObject *obj;
+  std::list<PyObject*> objs;
+  for (i = 0; i < from; i++) {
+    std::stringstream s;
+    s << j;
+    //std::cout << "acc self " << i << "\n";
+    objs.push_back(SList_get_item(_self, i));
+  }
+  for (j = 0; j < other_size; j++) {
+    if (PyList_CheckExact(lst)) {
+      //std::cout << "acc other list's " << j << "\n";
+      objs.push_back(PyList_GetItem(lst, j));
+    } else {
+      //std::cout << "acc other slist's " << j << "\n";
+      objs.push_back(SList_get_item(lst, j));
+    }
+  }
+
+  for (j = from ; j < self_size; j++) {
+    std::stringstream s;
+    s << j;
+    //std::cout << "acc self " << j << "\n";
+    objs.push_back(SList_get_item(_self, j));
+  }
+
+  //std::cout << "overwriting all now..\n";
+  i = 0;
+  for (std::list<PyObject*>::iterator it = objs.begin(); it != objs.end(); it++, i++) {
+    if (i < self_size) {
+      std::stringstream s;
+      s << i;
+      //std::cout << "overwriting self " << i << "\n";
+      if (do_rec_store_item(self->sm, s.str().c_str(), *it)) {
+        return NULL;
+      }
+    } else {
+      //std::cout << "appending self " << i << "\n";
+      PyObject* tpl = PyTuple_New(1);
+      PyTuple_SetItem(tpl, 0, *it);
+      if (SList_append(_self, tpl) == NULL) {
+        return NULL;
+      }
+    }
+  }
+  Py_INCREF(Py_None);
+  return Py_None;
 }
 
 static PyObject*
