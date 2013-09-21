@@ -68,7 +68,13 @@ typedef struct {
 
 
 static int
-SList_print(PyObject *self, FILE *file, int flags);
+SList_print(PyObject *o, FILE *fp, int flags);
+
+static PyObject*
+SList_str(PyObject *o);
+
+static PyObject*
+SList_repr(PyObject *o);
 
 static int
 SList_compare(PyObject *o1, PyObject *o2);
@@ -105,10 +111,6 @@ SList_contains(PyObject *self, PyObject *value);
 
 static PyObject*
 SList_iter(PyObject* self);
-
-
-static PyObject*
-SList_str(PyObject *self);
 
 static int
 SList_init(SList *self, PyObject *args, PyObject *kwds);
@@ -197,13 +199,13 @@ SListType = {
     0,                       /* tp_getattr */
     0,                       /* tp_setattr */
     SList_compare,           /* tp_compare */
-    0,                       /* tp_repr */
+    SList_repr,              /* tp_repr */
     &slist_nums,             /* tp_as_number */
     &slist_seq,              /* tp_as_sequence */
     0,                       /* tp_as_mapping */
     0,                       /* tp_hash */
     0,                       /* tp_call */
-    SList_str,                /* tp_str */
+    SList_str,               /* tp_str */
     0,                       /* tp_getattro */
     0,                       /* tp_setattro */
     0,                       /* tp_as_buffer */
@@ -276,14 +278,6 @@ SList_IterType = {
     0,                       /* tp_alloc */
     0,                       /* tp_new */
 };
-
-int
-SList_print(PyObject *self, FILE *file, int flags) {
-  std::stringstream s;
-  s << "<dshared.list" << " object at " << self << ">";
-  fputs(s.str().c_str(), file);
-  return 0;
-}
 
 int
 SList_compare(PyObject *_self, PyObject *o2) { // 0 = True, 1/-1 = False
@@ -419,8 +413,33 @@ _SList_add(PyListObject* _lhs, SList* rhs) {
 
 PyObject*
 _SList_add(SList* lhs, SList* rhs) {
-  PyErr_SetString(PyExc_TypeError," TODO");
-  return NULL;
+
+  Py_ssize_t size = lhs->sm->size();
+
+  Py_ssize_t rsize = rhs->sm->size();
+  size += rsize;
+
+  PyObject* lst = PyList_New(size);
+  smap::size_type i;
+  for (i = 0; i < lhs->sm->size(); i++) {
+    std::stringstream s;
+    s << i;
+    offset_ptr<smap_value_t> val = smap_get_item(lhs->sm, s.str().c_str());
+    PyObject* o = PyObject_from_variant(val);
+    PyList_SetItem(lst, i, o);
+  }
+
+  for (Py_ssize_t j = 0; j < rsize; i++, j++) {
+    std::stringstream s;
+    s << j;
+    offset_ptr<smap_value_t> val = smap_get_item(rhs->sm, s.str().c_str());
+    PyObject* o = PyObject_from_variant(val);
+    PyList_SetItem(lst, i, o);
+    // PyObject* o = PyList_GetItem(rhs, j);
+    // PyList_SetItem(lst, i, o);
+  }
+  Py_INCREF(lst);
+  return lst;
 }
 
 static PyObject*
@@ -691,11 +710,46 @@ SList_iter(PyObject* self) {
   return (PyObject*) iterator;
 }
 
+std::string
+do_SList_repr(SList* self) {
+  std::stringstream s;
+  s <<"[";
+
+  std::string comma = "";
+  offset_ptr<smap> sm = self->sm;
+  for (smap::size_type i = 0; i < sm->size(); i++) {
+    PyObject* entry = SList_get_item((PyObject*)self, i);
+    // if (entry == NULL) {
+    //   return -1;
+    // }
+    PyObject* str = PyObject_Repr(entry);
+    s <<  comma << PyString_AsString(str);
+    comma = ", ";
+  }
+  s << "]";
+  return s.str();
+}
+
 PyObject*
 SList_str(PyObject *self) {
-  std::stringstream s;
-  s << "<dshared.list" << " object at " << self << ">";
-  return PyString_FromString(s.str().c_str());
+  std::string r = do_SList_repr((SList*)self);
+  return PyString_FromString(r.c_str());
+}
+
+PyObject*
+SList_repr(PyObject *self) {
+  std::string r = do_SList_repr((SList*)self);
+  return PyString_FromString(r.c_str());
+}
+
+int
+SList_print(PyObject *self, FILE *file, int flags) {
+  std::string r = do_SList_repr((SList*)self);
+  fputs(r.c_str(), file);
+  // std::stringstream s;
+  // s << "<dshared.list" << " object at " << self << ">";
+  // fputs(s.str().c_str(), file);
+  return 0;
 }
 
 
@@ -891,11 +945,11 @@ SDict_str(PyObject *self);
 static int
 SDict_print(PyObject *self, FILE *file, int flags);
 
+PyObject*
+SDict_repr(PyObject *self);
+
 static Py_ssize_t
 SDict_len(PyObject* self);
-
-static int
-SDict_init(SDict *self, PyObject *args, PyObject *kwds);
 
 static PyObject*
 SDict_create_dict(offset_ptr<smap_value_t> variant);
@@ -1001,7 +1055,7 @@ SDictType = {
     0,                       /* tp_getattr */
     0,                       /* tp_setattr */
     0,                       /* tp_compare */
-    0,                       /* tp_repr */
+    0,              /* tp_repr */
     0,                       /* tp_as_number */
     &SDict_seq,              /* tp_as_sequence */
     &SDict_mapping,          /* tp_as_mapping */
@@ -1400,19 +1454,88 @@ SDict_append(PyObject* _self, PyObject* args) {
   return Py_None;
 }
 
+static std::list<offset_ptr<smap_value_t> >
+sdict_repr_visited;
+
+static bool
+processing_repr = false;
+
+std::string
+do_SDict_repr(SDict* self) {
+  std::stringstream s;
+  s <<"{";
+
+  std::string comma = "";
+
+  int i = 0;
+  for (smap::iterator it = self->sm->begin();
+       it != self->sm->end(); i++, it++) {
+    s << comma << it->first << ": ";
+    // std::cout << "sdict_repr. key: " << it->first << "\n";
+    offset_ptr<smap_value_t> sdval = smap_get_item(self->sm, it->first.c_str());
+    PyObject* val = PyObject_from_variant(sdval);
+    // std::cout << "sdict_repr. value: " << val << "\n";
+    if (PyObject_TypeCheck(val, &SDictType)) { // || PyDict_CheckExact(val)) {
+      // std::cout << "sdict_repr. value is sdict\n";
+      if (std::find(sdict_repr_visited.begin(),
+                    sdict_repr_visited.end(), sdval) != sdict_repr_visited.end()) {
+        // std::cout << "sdict_repr. value FOUND in visited\n";
+        s << "<Recursion " << sdval << ">";
+      } else {
+        // std::cout << "sdict_repr. value NOT in visited\n";
+        sdict_repr_visited.push_back(sdval);
+        s << PyString_AsString(PyObject_Repr(val));
+      }
+    } else {
+      // std::cout << "sdict_repr. value is scalar or somth\n";
+      s << PyString_AsString(PyObject_Repr(val));
+    }
+    comma = ", ";
+  }
+  s << "}";
+  // std::cout << "sdict_repr. returning\n";
+  return s.str();
+}
+
 
 PyObject*
 SDict_str(PyObject *self) {
-  std::stringstream s;
-  s << "<dshared.dict" << " object at " << self << ">";
-  return PyString_FromString(s.str().c_str());
+  if (!processing_repr) {
+    sdict_repr_visited.clear();
+    processing_repr = true;
+  }
+  std::string r = do_SDict_repr((SDict*)self);
+  processing_repr = false;
+  return PyString_FromString(r.c_str());
+  // std::stringstream s;
+  // s << "<dshared.dict" << " object at " << self << ">";
+  // return PyString_FromString(s.str().c_str());
+}
+
+PyObject*
+SDict_repr(PyObject *self) {
+  if (!processing_repr) {
+    sdict_repr_visited.clear();
+    processing_repr = true;
+  }
+  std::cout << "sdict_repr cleared. begin...\n";
+  std::string r = do_SDict_repr((SDict*)self);
+  processing_repr = false;
+  return PyString_FromString(r.c_str());
 }
 
 int
 SDict_print(PyObject *self, FILE *file, int flags) {
-  std::stringstream s;
-  s << "<dshared.dict" << " object at " << self << ">";
-  fputs(s.str().c_str(), file);
+  if (!processing_repr) {
+    sdict_repr_visited.clear();
+    processing_repr = true;
+  }
+  std::string r = do_SDict_repr((SDict*)self);
+  fputs(r.c_str(), file);
+  processing_repr = false;
+  // std::stringstream s;
+  // s << "<dshared.dict" << " object at " << self << ">";
+  // fputs(s.str().c_str(), file);
   return 0;
 }
 
