@@ -82,7 +82,7 @@ SList_compare(PyObject *o1, PyObject *o2);
 static PyObject*
 SList_rich_compare(PyObject *a, PyObject *b, int op);
 
-static int
+static Py_ssize_t
 SList_len(PyObject* self);
 
 static PyObject*
@@ -351,7 +351,7 @@ SList_rich_compare(PyObject *self, PyObject *other, int op) {
   }
 }
 
-int
+Py_ssize_t
 SList_len(PyObject* self) {
   return ((SList*)self)->sm->size();
 }
